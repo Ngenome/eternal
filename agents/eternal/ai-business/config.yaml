@@ -1,0 +1,10 @@
+name: ai-business
+description: "Tracks the business side of AI — deals, valuations, market dynamics, enterprise adoption, competitive landscape"
+template: agents/eternal/ai-business/template.md
+default_sleep_minutes: 180
+max_sleep_minutes: 480
+min_sleep_minutes: 30
+allowed_tools: "Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"
+
+interrupt_on:
+  - file: "agents/eternal/ai-business/interrupt.md"

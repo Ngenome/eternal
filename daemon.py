@@ -667,12 +667,27 @@ Then write your full output below the frontmatter.
             memory_path = self.state_dir / "orchestrator_memory.md"
             memory = memory_path.read_text() if memory_path.exists() else ""
 
-            full_prompt = f"{memory}\n\n---\n\n{prompt_md}"
+            # Inject current date/time into prompt
+            now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            full_prompt = f"## Current Date/Time: {now_str}\n\n## Your Memory\n\n{memory}\n\n---\n\n{prompt_md}"
 
             system_prompt_path = BASE_DIR / self.config["orchestrator"]["system_prompt"]
             if not system_prompt_path.exists():
                 self.logger.error(f"Orchestrator system prompt not found: {system_prompt_path}")
                 return
+
+            # Build system prompt with soul and architecture injected
+            soul_path = BASE_DIR / "soul.md"
+            arch_path = BASE_DIR / "ARCHITECTURE.md"
+            sys_prompt = system_prompt_path.read_text()
+            if soul_path.exists():
+                sys_prompt = sys_prompt.replace("{{SOUL}}", soul_path.read_text())
+            if arch_path.exists():
+                sys_prompt = sys_prompt.replace("{{ARCHITECTURE}}", arch_path.read_text())
+
+            # Write the resolved system prompt to a temp file for run_claude
+            resolved_prompt_path = self.state_dir / "_orchestrator_system_prompt.md"
+            resolved_prompt_path.write_text(sys_prompt)
 
             # Write lock
             lock_path.write_text(str(os.getpid()))
@@ -688,7 +703,7 @@ Then write your full output below the frontmatter.
             db.insert_event("ORCHESTRATOR_WAKE", "Orchestrator waking up", agent_name="orchestrator")
 
             exit_code, output = await run_claude(
-                system_prompt_path=system_prompt_path,
+                system_prompt_path=resolved_prompt_path,
                 prompt_text=full_prompt,
                 allowed_tools=allowed_tools,
                 model=model,

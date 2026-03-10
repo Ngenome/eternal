@@ -1,0 +1,10 @@
+name: ai-researcher
+description: "Deep-dives into AI/ML developments — papers, models, benchmarks, breakthroughs, tooling, open-source"
+template: agents/eternal/ai-researcher/template.md
+default_sleep_minutes: 120
+max_sleep_minutes: 480
+min_sleep_minutes: 30
+allowed_tools: "Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"
+
+interrupt_on:
+  - file: "agents/eternal/ai-researcher/interrupt.md"
