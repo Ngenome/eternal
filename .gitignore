@@ -2,3 +2,13 @@ __pycache__/
 *.pyc
 .venv/
 eternal.db
+
+# Sensitive / runtime
+.env
+*.credentials*
+state/orchestrator.lock
+state/_orchestrator_system_prompt.md
+
+# Session data (large, regenerated)
+logs/*.log
+logs/history.jsonl

@@ -890,8 +890,8 @@ Continue your work. Before finishing, you MUST update your LIFETIME.md file at `
                 "finished_at": ea.last_cycle_end,
             })
 
-            # Determine sleep duration — default is 0 (restart immediately)
-            sleep_minutes = 0
+            # Determine sleep duration — default is 2 min cooldown between cycles
+            sleep_minutes = 2
             sleep_reason = ""
             if sleep_path.exists():
                 try:
