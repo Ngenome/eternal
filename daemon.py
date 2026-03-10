@@ -217,7 +217,7 @@ def build_prompt_md(
             if disc_lines:
                 lines.append(f"- Latest discovery: {disc_lines[-1]}")
         # Memory size
-        mem_path = BASE_DIR / "agents" / "eternal" / name / "memory.md"
+        mem_path = BASE_DIR / "agents" / "eternal" / name / "LIFETIME.md"
         if mem_path.exists():
             size = mem_path.stat().st_size
             lines.append(f"- Memory size: {size / 1024:.1f}KB")
@@ -601,9 +601,12 @@ Then write your full output below the frontmatter.
             yaml.dump(task, f)
         shutil.move(str(running_yaml), str(dest_dir / running_yaml.name))
 
-        # Cleanup prompt file
+        # Cleanup prompt file and ad-hoc system prompt
         if prompt_path.exists():
             prompt_path.unlink()
+        adhoc_system = self.tasks_dir / "running" / f"{task_id}.system.md"
+        if adhoc_system.exists():
+            adhoc_system.unlink()
 
         # Remove from running
         self.running_tasks.pop(task_id, None)
@@ -683,12 +686,15 @@ Then write your full output below the frontmatter.
                 self.logger.error(f"Orchestrator system prompt not found: {system_prompt_path}")
                 return
 
-            # Build system prompt with soul and architecture injected
+            # Build system prompt with soul, mission, and architecture injected
             soul_path = BASE_DIR / "soul.md"
+            mission_path = BASE_DIR / "mission.md"
             arch_path = BASE_DIR / "ARCHITECTURE.md"
             sys_prompt = system_prompt_path.read_text()
             if soul_path.exists():
                 sys_prompt = sys_prompt.replace("{{SOUL}}", soul_path.read_text())
+            if mission_path.exists():
+                sys_prompt = sys_prompt.replace("{{MISSION}}", mission_path.read_text())
             if arch_path.exists():
                 sys_prompt = sys_prompt.replace("{{ARCHITECTURE}}", arch_path.read_text())
 
@@ -777,18 +783,25 @@ Then write your full output below the frontmatter.
             agent_config = yaml.safe_load(f)
 
         template_path = agent_dir / "template.md"
-        memory_path = agent_dir / "memory.md"
+        lifetime_path = agent_dir / "LIFETIME.md"
         discoveries_path = agent_dir / "discoveries.md"
         sleep_path = agent_dir / "sleep.yaml"
         interrupt_path = agent_dir / "interrupt.md"
+
+        # Migration: rename memory.md -> LIFETIME.md if old name exists
+        old_memory_path = agent_dir / "memory.md"
+        if old_memory_path.exists() and not lifetime_path.exists():
+            old_memory_path.rename(lifetime_path)
+        elif old_memory_path.exists() and lifetime_path.exists():
+            old_memory_path.unlink()  # LIFETIME.md takes priority
 
         if not template_path.exists():
             self.logger.error(f"Eternal agent {name}: missing template.md")
             return
 
-        # Ensure memory exists
-        if not memory_path.exists():
-            memory_path.write_text("# Memory\n\n(First cycle — no prior memory.)\n")
+        # Ensure LIFETIME.md exists
+        if not lifetime_path.exists():
+            lifetime_path.write_text(f"# {name} — Lifetime Record\n\n(First cycle — no prior memory.)\n")
         if not discoveries_path.exists():
             discoveries_path.write_text("")
 
@@ -796,16 +809,17 @@ Then write your full output below the frontmatter.
         allowed_tools = agent_config.get("allowed_tools", "Read,Write,Edit,Glob,Grep,WebFetch,WebSearch")
         # Eternal agents have no timeout by default — they run as long as they need
         timeout = agent_config.get("timeout_minutes", 0)
-        default_sleep = agent_config.get("default_sleep_minutes", 60)
+        # Default: no sleep (respawn immediately). Agent can request sleep via sleep.yaml.
         max_sleep = agent_config.get("max_sleep_minutes", 360)
-        min_sleep = agent_config.get("min_sleep_minutes", 5)
+        min_sleep = agent_config.get("min_sleep_minutes", 1)
 
         while not self.shutting_down:
             ea = self.eternal_agents[name]
             ea.status = "running"
 
             # Build prompt
-            memory = memory_path.read_text() if memory_path.exists() else "(no memory yet)"
+            lifetime = lifetime_path.read_text() if lifetime_path.exists() else "(no prior lifetime record)"
+            now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
             interrupt_msg = "None"
             if interrupt_path.exists():
@@ -814,9 +828,11 @@ Then write your full output below the frontmatter.
                     interrupt_msg = content
                     interrupt_path.write_text("")  # Clear after reading
 
-            prompt = f"""## Your Memory (everything you know)
+            prompt = f"""## Current Date/Time: {now_str}
 
-{memory}
+## Your LIFETIME Record (everything you know — your entire persistent existence)
+
+{lifetime}
 
 ---
 
@@ -825,7 +841,7 @@ Then write your full output below the frontmatter.
 
 ---
 
-Continue your work from where you left off. Remember: before finishing, you MUST update your memory file and write your sleep preferences."""
+Continue your work. Before finishing, you MUST update your LIFETIME.md file at `agents/eternal/{name}/LIFETIME.md` — anything not written there is lost forever when this session ends. If you want to sleep before your next cycle, write to `agents/eternal/{name}/sleep.yaml` with `sleep_minutes` and `reason`. If you don't write a sleep file, you'll be restarted immediately."""
 
             self.logger.info(f"[eternal:{name}] Starting cycle")
 
@@ -852,7 +868,7 @@ Continue your work from where you left off. Remember: before finishing, you MUST
             db.finish_run(run_id, cycle_status, exit_code, summary=output[:200] if output else "")
 
             # Update eternal agent DB state
-            mem_size = memory_path.stat().st_size if memory_path.exists() else 0
+            mem_size = lifetime_path.stat().st_size if lifetime_path.exists() else 0
             latest_disc = ""
             if discoveries_path.exists():
                 lines = discoveries_path.read_text().strip().split("\n")
@@ -874,47 +890,56 @@ Continue your work from where you left off. Remember: before finishing, you MUST
                 "finished_at": ea.last_cycle_end,
             })
 
-            # Determine sleep duration
-            sleep_minutes = default_sleep
-            if sleep_path.exists():
-                try:
-                    sleep_data = yaml.safe_load(sleep_path.read_text())
-                    if isinstance(sleep_data, dict) and "sleep_minutes" in sleep_data:
-                        sleep_minutes = int(sleep_data["sleep_minutes"])
-                        sleep_minutes = max(min_sleep, min(max_sleep, sleep_minutes))
-                except Exception:
-                    pass
-
-            self.logger.info(f"[eternal:{name}] Sleeping for {sleep_minutes} min")
-            ea.sleep_until = time.time() + sleep_minutes * 60
-
+            # Determine sleep duration — default is 0 (restart immediately)
+            sleep_minutes = 0
             sleep_reason = ""
             if sleep_path.exists():
                 try:
-                    sd = yaml.safe_load(sleep_path.read_text())
-                    sleep_reason = sd.get("reason", "") if isinstance(sd, dict) else ""
+                    sleep_data = yaml.safe_load(sleep_path.read_text())
+                    if isinstance(sleep_data, dict):
+                        if "sleep_minutes" in sleep_data:
+                            sleep_minutes = int(sleep_data["sleep_minutes"])
+                            sleep_minutes = max(0, min(max_sleep, sleep_minutes))
+                            if sleep_minutes > 0 and sleep_minutes < min_sleep:
+                                sleep_minutes = min_sleep
+                        sleep_reason = sleep_data.get("reason", "")
+                    # Clear sleep file so next cycle defaults to no-sleep
+                    sleep_path.unlink()
                 except Exception:
                     pass
 
-            db.upsert_eternal_agent(
-                name, status="sleeping",
-                last_cycle_end=ea.last_cycle_end,
-                sleep_until=datetime.fromtimestamp(ea.sleep_until, tz=timezone.utc).isoformat(),
-                sleep_reason=sleep_reason,
-                memory_size_bytes=mem_size,
-                latest_discovery=latest_disc,
-            )
+            if sleep_minutes > 0:
+                self.logger.info(f"[eternal:{name}] Sleeping for {sleep_minutes} min ({sleep_reason or 'no reason'})")
+                ea.sleep_until = time.time() + sleep_minutes * 60
 
-            # Sleep, but check for interrupts
-            sleep_end = time.time() + sleep_minutes * 60
-            while time.time() < sleep_end and not self.shutting_down:
-                # Check for interrupt
-                if interrupt_path.exists() and interrupt_path.read_text().strip():
-                    self.logger.info(f"[eternal:{name}] Interrupted during sleep!")
-                    break
-                await asyncio.sleep(5)  # Check every 5 seconds
+                db.upsert_eternal_agent(
+                    name, status="sleeping",
+                    last_cycle_end=ea.last_cycle_end,
+                    sleep_until=datetime.fromtimestamp(ea.sleep_until, tz=timezone.utc).isoformat(),
+                    sleep_reason=sleep_reason,
+                    memory_size_bytes=mem_size,
+                    latest_discovery=latest_disc,
+                )
 
-            ea.sleep_until = None
+                # Sleep, but check for interrupts
+                sleep_end = ea.sleep_until
+                while time.time() < sleep_end and not self.shutting_down:
+                    if interrupt_path.exists() and interrupt_path.read_text().strip():
+                        self.logger.info(f"[eternal:{name}] Interrupted during sleep!")
+                        break
+                    await asyncio.sleep(5)
+
+                ea.sleep_until = None
+            else:
+                self.logger.info(f"[eternal:{name}] No sleep requested, restarting immediately")
+                db.upsert_eternal_agent(
+                    name, status="running",
+                    last_cycle_end=ea.last_cycle_end,
+                    sleep_until=None,
+                    sleep_reason="",
+                    memory_size_bytes=mem_size,
+                    latest_discovery=latest_disc,
+                )
 
     # -- Signal handling --
 

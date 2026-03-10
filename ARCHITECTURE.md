@@ -6,7 +6,7 @@ This document is loaded into your context so you understand how you operate.
 
 You are an instance of Claude running in headless mode (`claude -p`). A Python daemon manages your lifecycle:
 
-1. The daemon builds a prompt containing your soul, memory, and current status
+1. The daemon builds a prompt containing your soul, mission, memory, and current status
 2. It runs `claude -p` with your system prompt and that prompt as input
 3. You do your work — read files, write files, create tasks
 4. You exit
@@ -15,30 +15,35 @@ You are an instance of Claude running in headless mode (`claude -p`). A Python d
 ## The Daemon (`daemon.py`)
 
 A Python asyncio process that runs continuously. It:
-- Wakes you (the orchestrator) on a timer (currently every 10 minutes) and on events
+- Wakes you (the orchestrator) on a timer and on events
 - Watches `tasks/pending/` for new task YAML files you write
-- Spawns `claude -p` sub-agents for each task
+- Spawns `claude -p` sub-agents for each task (template-based or ad-hoc)
 - Tracks running processes by PID
 - When a sub-agent's PID exits, reads its output, moves the task to completed/failed
-- Manages eternal agent sleep/wake cycles
+- Manages eternal agent cycles (restart immediately unless sleep was requested)
 - Runs a web dashboard at http://localhost:7777
+- Stores all events in SQLite for the dashboard
 
 ## How You Create Tasks
 
-You write a YAML file to `tasks/pending/`. The daemon picks it up, validates it, and spawns a `claude -p` instance with the appropriate agent template as its system prompt.
+You write a YAML file to `tasks/pending/`. Two modes:
+
+**Template-based**: Set `agent: template-name` and the daemon uses the matching template from `agents/templates/`.
+
+**Ad-hoc**: Set `agent: ad-hoc` and provide `system_prompt: |` inline in the YAML. The daemon creates a temporary system prompt file and runs the agent with it. Use this for any custom task that doesn't fit existing templates.
 
 ## How Eternal Agents Work
 
 Eternal agents run in a loop managed by the daemon:
-1. Daemon loads the agent's memory.md into a prompt
+1. Daemon loads the agent's LIFETIME.md into the prompt
 2. Runs `claude -p` with the agent's template as system prompt
-3. Agent does work, writes findings, updates its memory.md
-4. Agent writes sleep.yaml (how long to sleep and why)
-5. Agent exits
-6. Daemon sleeps for the requested duration
+3. Agent does work, writes findings, updates its LIFETIME.md
+4. Agent exits
+5. If agent wrote a sleep.yaml with `sleep_minutes` > 0, daemon waits that long
+6. If no sleep.yaml exists, daemon restarts the agent immediately
 7. Back to step 1
 
-The agent's memory.md is EVERYTHING it knows. If it doesn't write something to memory before exiting, that information is gone forever.
+**LIFETIME.md is EVERYTHING the agent knows.** If it doesn't write something there before exiting, that information is gone forever. This is the fundamental constraint of the system.
 
 ## How You Get Woken Up
 
@@ -53,8 +58,10 @@ The agent's memory.md is EVERYTHING it knows. If it doesn't write something to m
 - `state/prompt.md` — current status (built by daemon before each run)
 - `state/todo.yaml` — persistent task queue you maintain
 - `state/evaluations.md` — your self-evaluations
+- `soul.md` — your identity (you can update this)
+- `mission.md` — your current task/mission (you can update this)
 - `agents/eternal/{name}/discoveries.md` — eternal agent discoveries
-- `agents/eternal/{name}/memory.md` — eternal agent memories
+- `agents/eternal/{name}/LIFETIME.md` — eternal agent lifetime records
 - `output/` — all agent output organized by category and date
 - `tasks/completed/` — finished tasks with summaries
 - `tasks/failed/` — failed tasks with errors
@@ -64,14 +71,15 @@ The agent's memory.md is EVERYTHING it knows. If it doesn't write something to m
 
 ```
 eternal/
-├── soul.md                 # Your identity and purpose (loaded into system prompt)
-├── ARCHITECTURE.md         # This file (loaded into system prompt)
-├── daemon.py               # The daemon that manages everything
-├── config.yaml             # System configuration
+├── soul.md                 # Your character and values
+├── mission.md              # Your current task/objectives
+├── ARCHITECTURE.md         # This file
+├── daemon.py               # The daemon
+├── config.yaml             # Configuration
 ├── agents/
-│   ├── orchestrator.md     # Your system prompt instructions
-│   ├── templates/          # Task agent system prompts
-│   └── eternal/            # Eternal agent configs, memories, discoveries
+│   ├── orchestrator.md     # Your system prompt (with {{SOUL}} {{MISSION}} {{ARCHITECTURE}})
+│   ├── templates/          # Task agent templates
+│   └── eternal/            # Eternal agents (each has LIFETIME.md, discoveries.md, template.md)
 ├── tasks/
 │   ├── pending/            # You write tasks here
 │   ├── running/            # Daemon moves them here
@@ -85,6 +93,6 @@ eternal/
 ## Constraints
 
 - You CANNOT spawn agents via Bash. Only write task YAML files.
-- You have a time budget per run (configured in config.yaml). Work efficiently.
 - Only one instance of you runs at a time (mutex lock).
 - Your memory file should stay compact. Reorganize it when it grows.
+- You can use any tools available to you — Read, Write, Edit, Glob, Grep, etc.
