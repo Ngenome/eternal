@@ -476,10 +476,17 @@ class EternalDaemon:
     async def spawn_task_agent(self, yaml_path: Path, task: dict):
         """Move task to running/ and spawn claude -p."""
         task_id = task["id"]
-        agent_name = task["agent"]
+        agent_name = task.get("agent", "ad-hoc")
+        system_prompt_inline = task.get("system_prompt")  # Ad-hoc agents provide this directly
         template_path = self.agents_dir / "templates" / f"{agent_name}.md"
 
-        if not template_path.exists():
+        # Resolve system prompt: inline takes priority, then template file
+        if system_prompt_inline:
+            # Ad-hoc agent — write inline prompt to a temp file
+            resolved_template = self.tasks_dir / "running" / f"{task_id}.system.md"
+            resolved_template.write_text(system_prompt_inline)
+            template_path = resolved_template
+        elif not template_path.exists():
             self.logger.error(f"No template for agent '{agent_name}', failing task {task_id}")
             task["status"] = "failed"
             task["error"] = f"Missing template: {agent_name}.md"
