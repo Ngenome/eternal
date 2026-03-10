@@ -1,12 +1,12 @@
 orchestrator:
-  interval_minutes: 30
+  interval_minutes: 10
   system_prompt: agents/orchestrator.md
   allowed_tools: "Read,Write,Edit,Glob,Grep"
-  timeout_minutes: 15
+  timeout_minutes: 30
 
 agents:
   max_concurrent: 3
-  default_timeout_minutes: 10
+  default_timeout_minutes: 30
 
 claude:
   permission_mode: "default"
