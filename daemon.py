@@ -262,25 +262,39 @@ async def run_claude(
     timeout_minutes: int,
     logger: logging.Logger,
     label: str = "agent",
+    output_log_path: Optional[Path] = None,
 ) -> tuple[int, str]:
-    """Run claude -p and return (exit_code, stdout)."""
+    """Run claude -p and return (exit_code, stdout).
+
+    timeout_minutes=0 means no timeout (run indefinitely).
+    If output_log_path is set, stdout is also written there for observability.
+    """
     cmd = build_claude_cmd(system_prompt_path, prompt_text, allowed_tools, model, timeout_minutes)
 
-    logger.info(f"[{label}] Spawning claude -p (timeout: {timeout_minutes}m)")
+    timeout_str = f"{timeout_minutes}m" if timeout_minutes > 0 else "none"
+    logger.info(f"[{label}] Spawning claude -p (timeout: {timeout_str})")
     logger.debug(f"[{label}] Tools: {allowed_tools}")
+
+    # Remove CLAUDECODE env var to allow nested sessions
+    env = os.environ.copy()
+    env.pop("CLAUDECODE", None)
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
 
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=prompt_text.encode()),
-            timeout=timeout_minutes * 60,
-        )
+        if timeout_minutes > 0:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=prompt_text.encode()),
+                timeout=timeout_minutes * 60,
+            )
+        else:
+            stdout, stderr = await proc.communicate(input=prompt_text.encode())
     except asyncio.TimeoutError:
         logger.warning(f"[{label}] Timed out after {timeout_minutes} min, killing")
         proc.kill()
@@ -289,6 +303,15 @@ async def run_claude(
 
     exit_code = proc.returncode
     output = stdout.decode() if stdout else ""
+
+    # Write output to log file for observability
+    if output_log_path:
+        output_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_log_path, "a") as f:
+            f.write(f"\n--- [{label}] {datetime.now(timezone.utc).isoformat()} (exit: {exit_code}) ---\n")
+            f.write(output[:5000] if output else "(no output)")
+            f.write("\n")
+
     if stderr:
         logger.debug(f"[{label}] stderr: {stderr.decode()[:500]}")
     if exit_code != 0:
@@ -531,6 +554,7 @@ Then write your full output below the frontmatter.
             timeout_minutes=timeout,
             logger=self.logger,
             label=f"task:{task_id}",
+            output_log_path=self.logs_dir / f"task-{task_id}.log",
         )
 
         # Read result from output file
@@ -651,6 +675,7 @@ Then write your full output below the frontmatter.
                 timeout_minutes=timeout,
                 logger=self.logger,
                 label="orchestrator",
+                output_log_path=self.logs_dir / "orchestrator_output.log",
             )
 
             append_history(self.logs_dir, {
@@ -719,7 +744,8 @@ Then write your full output below the frontmatter.
 
         model = self.config["claude"]["model"]
         allowed_tools = agent_config.get("allowed_tools", "Read,Write,Edit,Glob,Grep,WebFetch,WebSearch")
-        timeout = agent_config.get("timeout_minutes", 30)
+        # Eternal agents have no timeout by default — they run as long as they need
+        timeout = agent_config.get("timeout_minutes", 0)
         default_sleep = agent_config.get("default_sleep_minutes", 60)
         max_sleep = agent_config.get("max_sleep_minutes", 360)
         min_sleep = agent_config.get("min_sleep_minutes", 5)
@@ -761,6 +787,7 @@ Continue your work from where you left off. Remember: before finishing, you MUST
                 timeout_minutes=timeout,
                 logger=self.logger,
                 label=f"eternal:{name}",
+                output_log_path=self.logs_dir / f"eternal-{name}.log",
             )
 
             ea.status = "sleeping"
