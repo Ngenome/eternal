@@ -1,0 +1,25 @@
+orchestrator:
+  interval_minutes: 30
+  system_prompt: agents/orchestrator.md
+  allowed_tools: "Read,Write,Edit,Glob,Grep"
+  timeout_minutes: 15
+
+agents:
+  max_concurrent: 3
+  default_timeout_minutes: 10
+
+claude:
+  permission_mode: "default"
+  model: "sonnet"
+  orchestrator_model: "sonnet"
+
+paths:
+  tasks_dir: tasks
+  output_dir: output
+  state_dir: state
+  logs_dir: logs
+  agents_dir: agents
+
+wake_on:
+  task_failed: true
+  task_completed: false

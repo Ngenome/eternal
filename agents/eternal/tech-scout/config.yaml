@@ -1,0 +1,11 @@
+name: tech-scout
+description: "Continuously researches tech news, startup ecosystem, funding rounds, product launches, and emerging trends"
+template: agents/eternal/tech-scout/template.md
+default_sleep_minutes: 60
+max_sleep_minutes: 360
+min_sleep_minutes: 10
+timeout_minutes: 20
+allowed_tools: "Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"
+
+interrupt_on:
+  - file: "agents/eternal/tech-scout/interrupt.md"
