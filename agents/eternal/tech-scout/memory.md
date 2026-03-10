@@ -1,21 +1,27 @@
 # Tech Scout Memory
 
-**Last updated:** 2026-03-10 (Cycle 1 complete)
+**Last updated:** 2026-03-10 (Cycle 2 complete)
 
 ---
 
 ## LAST CYCLE SUMMARY
 
-Completed first-ever research sweep. Date covered: **2026-03-10**.
-Output written to: `output/tech-scout/2026-03-10/` (raw-findings.md, funding-rounds.md, product-launches.md, notable.md)
+Completed Cycle 2 research sweep. Date: **2026-03-10**.
+Output updated at: `output/tech-scout/2026-03-10/` (all 4 files updated with Cycle 2 additions)
 
 Sources checked this cycle:
-- TechCrunch (direct fetch + search)
-- Hacker News (direct fetch — top 20 stories)
-- Axios, CNBC, Bloomberg, IEEE Spectrum, LWN
-- VentureBeat (search), Silicon Republic, The Next Web, Sifted
-- Financial Times, Tom's Hardware, Techmeme, Crunchbase
-- Product Hunt — BLOCKED (403 error, skip next cycle or try alternate approach)
+- Hacker News (direct fetch — top 30 stories, live)
+- TechCrunch, Axios, CNBC, Bloomberg, Fortune, Variety (via search)
+- 9to5Mac, MacRumors, Gadget Hacks (Apple)
+- STAT News (AMI Labs health angle)
+- Sifted, Silicon Republic (European AI)
+- InfoQ, Red Hat Developer, CodeRabbit (vibe coding)
+- Counterpoint Research, TechRadar, Xinhua (MWC)
+- llm-stats.com, LLM Stats (model tracking)
+- hunted.space / Product Hunt via search ✓ (worked!)
+- The Verge — BLOCKED (Claude Code cannot fetch)
+- Ars Technica — BLOCKED (Claude Code cannot fetch)
+- FT — paywalled, use search snippets only
 
 ---
 
@@ -23,47 +29,92 @@ Sources checked this cycle:
 
 ### 🔴 HOT — Follow Next Cycle
 
-1. **Moltbook → Meta Superintelligence Labs**
-   - Founders (Schlicht + Parr) start at MSL on March 16
-   - OpenAI open-sourcing OpenClaw (agent runtime) with Peter Steinberger
-   - Watch: agent identity/verification infrastructure announcements
+1. **YC W26 Demo Day — March 24, 2026**
+   - 196 companies presenting at Computer History Museum, SF
+   - Watch: breakout companies, new unicorns, agent/identity infra startups
+   - Key companies to watch: Didit (identity), Pocket (hardware), Beacon Health
+   - Biggest YC event in years — do a dedicated search the day after
 
-2. **Amazon AI coding crisis**
-   - Mandatory all-hands held March 10
-   - New policy: senior sign-off required for AI-assisted code
-   - Watch: Enterprise response, competitor AI coding tool vendors' reactions
+2. **Moltbook → Meta Superintelligence Labs — March 16 start date**
+   - Matt Schlicht + Ben Parr officially join MSL March 16
+   - What does MSL build with agent identity/verification concepts?
+   - Watch: Any MSL press releases, LinkedIn posts from founders
 
-3. **Thinking Machines Lab (Mira Murati)**
-   - Nvidia 1GW Vera Rubin deal announced March 10
-   - Compute arrives early 2027
-   - Co-founder departures (Andrew Tulloch → Meta; Zoph/Metz/Schoenholz → OpenAI)
-   - Watch: product/research announcements
+3. **OpenAI Promptfoo → Frontier Platform Integration**
+   - Acquisition closed March 9. Integration work begins.
+   - Watch: Frontier platform updates, API announcements, security features
+   - Also track: other AI vendors making similar security acquisitions
 
-4. **AMI Labs (Yann LeCun)**
-   - $1.03B seed announced March 10 (Europe's largest ever)
-   - Watch: first research outputs, hiring announcements, JEPA papers
+4. **Apple iOS 26.4 launch**
+   - Expected March or April 2026
+   - Core Siri on-screen awareness features still on track
+   - Personal info access delayed to iOS 26.5 (May) and iOS 27 (September)
+   - Watch: exact launch date, any remaining features that ship
 
-5. **Apple iOS 26.4 / Siri-Gemini launch**
-   - Targeting March 2026 release
-   - Reimagined Siri using Google Gemini 1.2T params on Private Cloud Compute
-   - Watch: launch date confirmation, reviews, privacy reactions
+5. **OpenAI $10B sovereign wealth fund tranche**
+   - Still being sought as of March 10; "final indications due shortly"
+   - Watch: UAE MGX, Saudi PIF, Norway, Singapore GIC participation
+   - Previous: $110B main round already closed Feb 27
+
+6. **Founders Fund Growth IV $6B close**
+   - Nearing close as of March 9 (not formally closed yet)
+   - Watch: official announcement, portfolio deployment plans
 
 ### 🟡 MEDIUM — Watch for Developments
 
-6. **Netflix-WB ($82.7B) vs Paramount-Skydance bidding war** — Final outcome pending
-7. **OpenAI seeking additional $10B from sovereign wealth funds** — Final indications due "shortly" as of March 10
-8. **Neura Robotics ~€1B close** — Anchored by Tether, ~€4B valuation, in process
-9. **Intel Heracles FHE chip commercialization** — Demonstrated at ISSCC, startup race ongoing
-10. **Founders Fund Growth IV $6B close** — Nearing close as of March 9, expect Q2 2026 announcement
-11. **AI-powered browsers** — OpenAI ChatGPT Atlas + Perplexity Comet gaining traction vs Chrome
+7. **Thinking Machines Lab (Mira Murati)**
+   - 1GW Vera Rubin deal announced March 10; compute arrives early 2027
+   - ~120 staff, major co-founder departures to Meta + OpenAI
+   - Watch: product/research announcements, new hires
+
+8. **AMI Labs (Yann LeCun) — First Research Outputs**
+   - $1.03B raised; entering pure R&D year
+   - First partner: Nabla (healthcare AI)
+   - Watch: JEPA papers, world model demos, hiring announcements
+
+9. **Paramount Skydance + Warner Bros. Discovery merger**
+   - Won bidding war over Netflix ($110.9B at $31/share)
+   - Expected 6-18 months to close; EU + DOJ antitrust review
+   - Watch: regulatory filings, any opposition
+
+10. **Intel Heracles FHE chip commercialization**
+    - Demonstrated at ISSCC; 5,000x acceleration vs server CPU
+    - Startup race to commercialize FHE ongoing
+    - Watch: cloud provider FHE-as-a-service announcements
+
+11. **Boston Dynamics Atlas commercial deployment**
+    - Gemini Robotics AI integrated; deploying at Hyundai Metaplant Georgia 2026
+    - Watch: operational updates, early performance data
+
+12. **EU AI Act compliance wave**
+    - **August 2, 2026** deadline for high-risk AI transparency requirements
+    - EC SME compliance support applications opening March 2026
+    - Watch: which companies/sectors scrambling; any Digital Omnibus simplification approved
+
+13. **Vibe coding enterprise governance**
+    - Amazon all-hands → senior sign-off policy now in effect
+    - Open source maintainers closing contributions ("AI Slopageddon")
+    - Watch: enterprise AI coding policies at major tech companies; code signing/certification tools
 
 ### 🟢 SLOW BURN — Check Monthly
 
-12. **AMI Labs JEPA vs LLM paradigm war** — Multi-year research effort
-13. **FHE computing ecosystem** — Intel + startup race to commercialize
-14. **France nuclear → AI industrial policy** — Long-term EU AI sovereignty story
-15. **Debian AI contribution policy** — Will revisit if GR re-introduced
-16. **AI drug discovery → clinical trials** — Oncology/rare disease candidates in mid-to-late trials
+14. **AMI Labs JEPA vs LLM paradigm war** — Multi-year research effort; check quarterly
+15. **FHE computing ecosystem** — Intel + startup race; check quarterly
+16. **France nuclear → AI industrial policy** — Long-term EU AI sovereignty
+17. **Debian AI contribution policy** — Will revisit if GR re-introduced
+18. **AI drug discovery → clinical trials** — Oncology/rare disease; check quarterly
+19. **1X Technologies NEO** — Consumer humanoid robot; $20K/$499 monthly; deliveries 2026
+20. **Starlink + Deutsche Telekom** — European satellite mobile service; target 2028
+
+---
+
+## RESOLVED STORIES (archive — no longer need tracking)
+
+- ✅ **Netflix-WBD bidding war** — RESOLVED. Paramount Skydance won ($110.9B/$31/share). Netflix received $2.8B breakup fee. Stock +14% on withdrawal. (Feb 26, 2026)
+- ✅ **Neura Robotics €1B round** — CLOSED March 5, 2026. Tether Holdings led. ~€4B valuation. Also: Qualcomm partnership announced.
+- ✅ **MWC 2026 coverage** — Complete. Conference was March 2-5. Key stories captured. No need to revisit.
+- ✅ **OpenAI $110B funding round** — CLOSED Feb 27. Amazon $50B, Nvidia $30B, SoftBank $30B. Pre $730B / Post $840B.
+- ✅ **Ars Technica AI reporter scandal** — Resolved. Reporter fired Feb 27. Guide on AI use coming. Story is complete.
 
 ---
 
@@ -71,73 +122,116 @@ Sources checked this cycle:
 
 ### Valuations (as of March 2026)
 - OpenAI: $730B pre-money ($840B post) — largest private tech company ever
-- Anthropic: $380B post-money (Founders Fund round)
+- Anthropic: $380B post-money (Founders Fund + co-led $30B round)
 - xAI (Elon Musk): last raised $20B
 - Nscale: $14.6B
+- Baseten: ~$5B (AI inference)
+- Apptronik: $5.3B (humanoid robotics)
 - Decagon: $4.5B (tripled in <1 year)
 - AMI Labs: $3.5B (4 months old)
 - Ualá: $3.2B
-- Thinking Machines Lab: $2B+ raised total
 - Sierra Space: $8B
-- Neura Robotics: ~€4B target
+- Thinking Machines Lab: $2B+ raised total
+- Neura Robotics: ~€4B (round closed)
 - Eight Sleep: $1.5B
+- LiveKit: $1B (new unicorn, Cycle 2)
+- Inferact: $800M seed-stage val
+- Didit: tiny (<$10M) but strategic
 
 ### Key People Moves
 - **Yann LeCun** — Left Meta → founded AMI Labs (Executive Chair)
 - **Matt Schlicht + Ben Parr** — Founded Moltbook → Meta MSL (starting March 16)
-- **Peter Steinberger** — Creator of OpenClaw → OpenAI
+- **Peter Steinberger** — Creator of OpenClaw → OpenAI (open-sourcing OpenClaw)
+- **Ian Webster + Michael D'Angelo** — Promptfoo founders → OpenAI (acquired March 9)
 - **Andrew Tulloch** — TML co-founder → Meta (Oct 2025)
 - **Barret Zoph, Luke Metz, Sam Schoenholz** — TML co-founders → returned to OpenAI (early 2026)
 - **Alexandr Wang** (ex-Scale AI CEO) — runs Meta Superintelligence Labs
 - **Alexandre LeBrun** (ex-Nabla CEO) — CEO of AMI Labs
+- **Mike Rabbat** (ex-Meta Research) — VP World Models at AMI Labs
+- **Saining Xie** (ex-Google DeepMind) — CSO at AMI Labs
+- **Benj Edwards** — Ars Technica senior AI reporter (fired for AI-fabricated quotes, Feb 2026)
 
 ### Model Leaderboard Snapshot (as of March 2026)
 - GDPval-AA Elo: Claude Sonnet 4.6 (1,633) > Claude Opus 4.6 > Gemini 3.1 Pro > GPT-5.4
-- ARC-AGI-2: Gemini 3.1 Pro 77.1%
+- ARC-AGI-2: Gemini 3.1 Pro 77.1% > Claude Opus 4.6 68.8%
 - Cheapest competitive: MiniMax M2.5 (rivals Claude Opus 4.6)
-- Latest OpenAI: GPT-5.4 (March 5)
+- Latest OpenAI: GPT-5.4 (March 5, 2026) — 1M ctx, native computer use, 33% fewer hallucinations
+- Latest Google: Gemini 3.1 Flash-Lite (March 2026) — fast, high-volume tier
+- GPT-5 family: GPT-5.4 Pro, GPT-5.4 Thinking, GPT-5.3 Instant all available
+- Feb 2026: 12+ major releases (Grok 4.20, Qwen 3.5, Mercury 2, ByteDance Seed 2.0, MiniMax M2.5, GLM-5, etc.)
+
+### Key Dates to Watch
+- **March 16, 2026** — Moltbook founders (Schlicht + Parr) officially join Meta MSL
+- **March 24, 2026** — YC W26 Demo Day, Computer History Museum SF
+- **March/April 2026** — iOS 26.4 release (partial Siri-Gemini features)
+- **May 2026** — iOS 26.5 (more Siri features)
+- **August 2, 2026** — EU AI Act high-risk AI compliance deadline
+- **Early 2027** — Thinking Machines Lab Vera Rubin compute arrives
 
 ---
 
 ## SOURCE NOTES
 
 ### Works Well
-- Direct HN fetch: excellent, gets live top 20 with point counts
-- WebSearch with specific queries: very rich summaries
-- IEEE Spectrum: accessible
-- TechCrunch (search): works great, direct fetch fails (paywall/JS)
-- Axios: 403 on direct fetch, use search instead
-- Bloomberg: paywalled, get summaries via search
+- **Direct HN fetch** ✓ — excellent, gets live top 30 with point counts and URLs
+- **WebSearch with specific queries** ✓ — very rich summaries, multiple sources combined
+- **TechCrunch via search** ✓ — excellent; direct fetch fails (JS/paywall)
+- **9to5Mac, MacRumors** ✓ — great for Apple news via search
+- **Axios, CNBC, Bloomberg, Fortune** ✓ — get via search
+- **Variety** ✓ — excellent for media/entertainment M&A
+- **STAT News** ✓ — health AI angle
+- **Sifted** ✓ — European tech rounds
+- **hunted.space + "Product Hunt trending" search** ✓ — works! (No need to fetch producthunt.com directly)
+- **IEEE Spectrum** ✓ — hardware/research
+- **LLM-stats.com** ✓ — model tracking
 
-### Blocked / Skip
-- Product Hunt: 403 error — try alternate URL or search "Product Hunt trending" next cycle
-- FT: Claude Code cannot fetch — use search snippets only
-- Axios direct URLs: 403 — search works fine
+### Blocked / Skip Direct Fetch
+- **The Verge** — BLOCKED (Claude Code cannot fetch)
+- **Ars Technica** — BLOCKED (Claude Code cannot fetch)
+- **Product Hunt** — 403 error; use search + hunted.space instead ✓
+- **FT (Financial Times)** — paywalled; search snippets only
+- **Axios direct URLs** — 403; search works fine
 
 ---
 
 ## PATTERNS & TRENDS NOTICED
 
-1. **Compute is the new oil** — Deals now measured in gigawatts (1GW = ~$50B). TML, OpenAI both announced GW-scale Nvidia Vera Rubin deals on the same day.
-2. **AI acquihires are the new acqui-hire** — Google/Windsurf ($2.4B), Meta/Scale AI ($14.3B non-voting), Meta/Moltbook. Regulatory arbitrage + talent acquisition.
-3. **"Vibe coding" backlash incoming** — Amazon outages, CMU study (61% correct, 10% secure). Senior sign-off policies emerging.
-4. **LLM paradigm challenge** — LeCun's AMI Labs betting $1B on world models / JEPA. China's efficiency (MiniMax M2.5) also challenging cost assumptions.
-5. **Europe having an AI moment** — AMI Labs, Nscale, PLD Space, Oxa — major European rounds. France pitching nuclear for AI. UK National Wealth Fund investing in Oxa.
-6. **Agent social/identity infrastructure** — Meta (Moltbook), OpenAI (OpenClaw), multiple startups racing to define how AI agents communicate and authenticate.
-7. **Security is the new growth vertical** — Fig Security, Google/Wiz, Palo Alto/CyberArk, Amazon policy changes — AI broadening attack surface.
+1. **Compute is the new oil** — Deals measured in gigawatts (1GW = ~$50B). TML, OpenAI both announced GW-scale Nvidia Vera Rubin deals. OpenAI targeting $600B total compute spend by 2030.
+
+2. **AI acquihires are the new acqui-hire** — Google/Windsurf ($2.4B), Meta/Scale AI ($14.3B non-voting), Meta/Moltbook (days from launch). Regulatory arbitrage + talent. Also: OpenAI/Promptfoo, Google/Wiz.
+
+3. **"Vibe coding" backlash confirmed with data** — 2.74x more security vulnerabilities in AI-co-authored code (CodeRabbit study). Open source crisis. Amazon senior sign-off policy. "AI Slopageddon." Enterprise governance gap widening faster than governance solutions.
+
+4. **LLM paradigm challenge** — LeCun's AMI Labs betting $1B on world models / JEPA. China's efficiency (MiniMax M2.5) challenging cost assumptions. But LLMs still ship 12+ new models in Feb 2026.
+
+5. **Europe having an AI moment** — AMI Labs ($1.03B), Nscale ($2B), Neura Robotics (€1B), PLD Space (€180M), Oxa ($103M). Paris + London emerging as AI hubs.
+
+6. **The Agentic Internet is converging** — OpenClaw (agent runtime) + Moltbook/MSL (agent social) + Didit/YC (agent identity) + Promptfoo/OpenAI (agent security) + GPT-5.4 (computer use) — all arriving in the same week. Phase transition underway.
+
+7. **Security is the growth vertical** — Fig Security, OpenAI/Promptfoo, Google/Wiz, Palo Alto/CyberArk, Amazon policy, JetStream $34M. AI broadening attack surface faster than defenses can keep up.
+
+8. **Humanoid robots reaching commercial reality** — Boston Dynamics Atlas at Hyundai plant 2026. 1X NEO consumer preorders. Xiaomi robots in EV factory. Neura €1B closed. Apptronik $935M. CES 2026 dominated by robots.
+
+9. **Breakup fee as strategy** — Netflix walked away from WBD with $2.8B. Stock +14% on withdrawal. M&A war chests now include breakup fee income as a financial outcome worth pursuing.
+
+10. **AI journalism/media credibility crisis** — Ars Technica firing; AI-generated misinformation flooding the internet; open source "AI Slopageddon." Trust in AI-assisted content collapsing at the same time AI-assisted content explodes.
 
 ---
 
 ## NEXT CYCLE CHECKLIST
 
-- [ ] Check for iOS 26.4 / Siri-Gemini launch confirmation
-- [ ] Moltbook founders start at Meta MSL March 16 — any announcements?
-- [ ] OpenAI additional $10B sovereign fund round — any close news?
-- [ ] Neura Robotics €1B round — close announcement?
-- [ ] Founders Fund $6B close — final announcement?
-- [ ] Netflix-WB acquisition — developments in bidding war?
-- [ ] AMI Labs — any research outputs or hiring news?
-- [ ] Check Product Hunt via search: "Product Hunt trending March 2026"
-- [ ] Check The Verge, Ars Technica (not covered this cycle)
-- [ ] Check for any new major model releases (any labs)
-- [ ] Check MWC 2026 additional announcements (conference was recent)
+- [ ] **PRIORITY: YC W26 Demo Day coverage** (March 24 — check the day of or day after)
+- [ ] Moltbook founders at Meta MSL (March 16 start) — any announcements?
+- [ ] OpenAI $10B sovereign fund tranche — close announced?
+- [ ] Founders Fund $6B — official close?
+- [ ] iOS 26.4 launch — exact date, features that shipped
+- [ ] AMI Labs — any first research/hiring announcements
+- [ ] Paramount Skydance-WBD merger — regulatory news
+- [ ] Check for new model releases (Claude 4.7? Gemini 3.2? GPT-5.5?)
+- [ ] Anthropic — any product/model announcements (they iterate monthly)
+- [ ] Enterprise AI coding policy follow-ups (who follows Amazon's lead?)
+- [ ] OpenAI Frontier platform update with Promptfoo integration
+- [ ] Boston Dynamics Atlas Hyundai deployment updates
+- [ ] EU AI Act August deadline — any company compliance announcements
+- [ ] Check The Verge via search (direct fetch blocked, but search works)
+- [ ] VentureBeat (not checked this cycle — add to sources)
