@@ -20,6 +20,9 @@ paths:
   logs_dir: logs
   agents_dir: agents
 
+web:
+  port: 7777
+
 wake_on:
   task_failed: true
   task_completed: false

@@ -17,6 +17,7 @@ import signal
 import shutil
 import sys
 import time
+import threading
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -24,6 +25,10 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+import uvicorn
+
+import db
+from web import app as web_app
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -353,6 +358,7 @@ class EternalDaemon:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        db.init_db()
 
         # Init memory file if missing
         mem = self.state_dir / "orchestrator_memory.md"
@@ -546,6 +552,10 @@ Then write your full output below the frontmatter.
         allowed_tools = task.get("allowed_tools", "Read,Write,Glob,Grep")
         timeout = task.get("timeout_minutes", self.config["agents"]["default_timeout_minutes"])
 
+        run_id = str(uuid.uuid4())
+        db.insert_run(run_id, "task", task.get("agent", "unknown"), task_id=task_id, prompt_preview=prompt_text[:500])
+        db.insert_event("TASK_STARTED", f"Task {task_id} started", agent_name=task.get("agent", ""), task_id=task_id)
+
         exit_code, output = await run_claude(
             system_prompt_path=template_path,
             prompt_text=prompt_text,
@@ -603,6 +613,12 @@ Then write your full output below the frontmatter.
             "status": status,
             "summary": result_summary,
         })
+
+        db.finish_run(run_id, status, exit_code, summary=result_summary, output_path=task.get("output_path", ""))
+        db.insert_event(
+            f"TASK_{status.upper()}", f"Task {task_id}: {result_summary}",
+            agent_name=task.get("agent", ""), task_id=task_id,
+        )
 
         self.logger.info(f"Task {task_id} -> {status}: {result_summary}")
 
@@ -667,6 +683,10 @@ Then write your full output below the frontmatter.
 
             self.logger.info("=== Orchestrator waking up ===")
 
+            run_id = str(uuid.uuid4())
+            db.insert_run(run_id, "orchestrator", "orchestrator", prompt_preview=prompt_md[:500])
+            db.insert_event("ORCHESTRATOR_WAKE", "Orchestrator waking up", agent_name="orchestrator")
+
             exit_code, output = await run_claude(
                 system_prompt_path=system_prompt_path,
                 prompt_text=full_prompt,
@@ -678,10 +698,18 @@ Then write your full output below the frontmatter.
                 output_log_path=self.logs_dir / "orchestrator_output.log",
             )
 
+            status = "completed" if exit_code == 0 else "failed"
+            db.finish_run(run_id, status, exit_code, summary=output[:200] if output else "")
+            db.insert_event(
+                f"ORCHESTRATOR_{status.upper()}",
+                f"Orchestrator {status} (exit: {exit_code})",
+                agent_name="orchestrator",
+            )
+
             append_history(self.logs_dir, {
                 "event": "orchestrator_run",
                 "exit_code": exit_code,
-                "wake_reasons": [asdict(ev) for ev in self.wake_queue],  # Any that arrived during run
+                "wake_reasons": [asdict(ev) for ev in self.wake_queue],
             })
 
             self.logger.info(f"=== Orchestrator done (exit: {exit_code}) ===")
@@ -779,6 +807,11 @@ Continue your work from where you left off. Remember: before finishing, you MUST
 
             self.logger.info(f"[eternal:{name}] Starting cycle")
 
+            run_id = str(uuid.uuid4())
+            db.insert_run(run_id, "eternal", name, prompt_preview=prompt[:500])
+            db.upsert_eternal_agent(name, status="running", current_run_id=run_id)
+            db.insert_event("ETERNAL_CYCLE_START", f"Eternal agent {name} starting cycle", agent_name=name)
+
             exit_code, output = await run_claude(
                 system_prompt_path=template_path,
                 prompt_text=prompt,
@@ -792,6 +825,24 @@ Continue your work from where you left off. Remember: before finishing, you MUST
 
             ea.status = "sleeping"
             ea.last_cycle_end = datetime.now(timezone.utc).isoformat()
+
+            cycle_status = "completed" if exit_code == 0 else "failed"
+            db.finish_run(run_id, cycle_status, exit_code, summary=output[:200] if output else "")
+
+            # Update eternal agent DB state
+            mem_size = memory_path.stat().st_size if memory_path.exists() else 0
+            latest_disc = ""
+            if discoveries_path.exists():
+                lines = discoveries_path.read_text().strip().split("\n")
+                disc_lines = [l for l in lines if l.strip() and not l.startswith("#") and not l.startswith("<!--")]
+                if disc_lines:
+                    latest_disc = disc_lines[-1]
+
+            db.insert_event(
+                f"ETERNAL_CYCLE_{cycle_status.upper()}",
+                f"Eternal agent {name} cycle {cycle_status}",
+                agent_name=name,
+            )
 
             # Log the cycle
             append_history(self.logs_dir, {
@@ -814,6 +865,23 @@ Continue your work from where you left off. Remember: before finishing, you MUST
 
             self.logger.info(f"[eternal:{name}] Sleeping for {sleep_minutes} min")
             ea.sleep_until = time.time() + sleep_minutes * 60
+
+            sleep_reason = ""
+            if sleep_path.exists():
+                try:
+                    sd = yaml.safe_load(sleep_path.read_text())
+                    sleep_reason = sd.get("reason", "") if isinstance(sd, dict) else ""
+                except Exception:
+                    pass
+
+            db.upsert_eternal_agent(
+                name, status="sleeping",
+                last_cycle_end=ea.last_cycle_end,
+                sleep_until=datetime.fromtimestamp(ea.sleep_until, tz=timezone.utc).isoformat(),
+                sleep_reason=sleep_reason,
+                memory_size_bytes=mem_size,
+                latest_discovery=latest_disc,
+            )
 
             # Sleep, but check for interrupts
             sleep_end = time.time() + sleep_minutes * 60
@@ -847,6 +915,15 @@ Continue your work from where you left off. Remember: before finishing, you MUST
         # Signal handlers
         signal.signal(signal.SIGINT, self.handle_shutdown)
         signal.signal(signal.SIGTERM, self.handle_shutdown)
+
+        # Start web dashboard in a background thread
+        web_port = self.config.get("web", {}).get("port", 7777)
+        web_thread = threading.Thread(
+            target=lambda: uvicorn.run(web_app, host="0.0.0.0", port=web_port, log_level="warning"),
+            daemon=True,
+        )
+        web_thread.start()
+        self.logger.info(f"Dashboard running at http://localhost:{web_port}")
 
         # Start all loops
         tasks = [
