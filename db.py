@@ -56,6 +56,22 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_runs_agent ON agent_runs(agent_type, agent_name);
         CREATE INDEX IF NOT EXISTS idx_runs_started ON agent_runs(started_at);
         CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
+
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            category TEXT DEFAULT '',
+            status TEXT DEFAULT 'new',       -- new, processing, processed, archived
+            key_points TEXT,                 -- JSON array, filled by summarizer
+            summary TEXT,                    -- filled by summarizer
+            tags TEXT DEFAULT '',            -- comma-separated
+            created_at TEXT NOT NULL,
+            processed_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_notes_status ON notes(status);
+        CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
     """)
     conn.commit()
     conn.close()
@@ -143,6 +159,56 @@ def get_eternal_agents() -> list[dict]:
     rows = conn.execute("SELECT * FROM eternal_agents ORDER BY name").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+# -- Notes --
+
+def insert_note(title: str, content: str, category: str = "", tags: str = "") -> int:
+    conn = get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    cur = conn.execute(
+        "INSERT INTO notes (title, content, category, tags, status, created_at) VALUES (?, ?, ?, ?, 'new', ?)",
+        (title, content, category, tags, now)
+    )
+    conn.commit()
+    note_id = cur.lastrowid
+    conn.close()
+    return note_id
+
+def update_note_status(note_id: int, status: str, summary: str = None, key_points: str = None):
+    conn = get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    if summary is not None and key_points is not None:
+        conn.execute(
+            "UPDATE notes SET status=?, summary=?, key_points=?, processed_at=? WHERE id=?",
+            (status, summary, key_points, now, note_id)
+        )
+    else:
+        conn.execute("UPDATE notes SET status=? WHERE id=?", (status, note_id))
+    conn.commit()
+    conn.close()
+
+def get_notes(status: str = None, limit: int = 50) -> list[dict]:
+    conn = get_conn()
+    if status:
+        rows = conn.execute(
+            "SELECT * FROM notes WHERE status=? ORDER BY created_at DESC LIMIT ?", (status, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM notes ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_note(note_id: int) -> dict | None:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_new_notes() -> list[dict]:
+    """Get notes with status 'new' that haven't been processed yet."""
+    return get_notes(status="new")
 
 # -- Stats --
 

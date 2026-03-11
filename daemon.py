@@ -223,6 +223,20 @@ def build_prompt_md(
             lines.append(f"- Memory size: {size / 1024:.1f}KB")
     lines.append("")
 
+    # Inbox notes (from user notepad)
+    inbox_dir = state_dir / "inbox"
+    inbox_notes = list(inbox_dir.glob("note-*.md")) if inbox_dir.exists() else []
+    if inbox_notes:
+        lines.append(f"## Inbox Notes ({len(inbox_notes)})")
+        for note_path in sorted(inbox_notes)[:10]:
+            content = note_path.read_text().strip()
+            preview = content[:300] + ("..." if len(content) > 300 else "")
+            lines.append(f"\n### {note_path.stem}")
+            lines.append(preview)
+        lines.append("")
+        lines.append("After reviewing inbox notes, delete them from state/inbox/ so they don't appear again.")
+        lines.append("")
+
     # Pending tasks count
     pending = list((tasks_dir / "pending").glob("*.yaml"))
     lines.append(f"## Pending Tasks ({len(pending)})")
@@ -427,6 +441,55 @@ class EternalDaemon:
             self.eternal_agents[name] = EternalAgentState(name=name)
             self.logger.info(f"Discovered eternal agent: {name}")
 
+    # -- Notes processing --
+
+    async def watch_notes(self):
+        """Poll for new notes and spawn a summarizer for each."""
+        while not self.shutting_down:
+            try:
+                new_notes = db.get_new_notes()
+                for note in new_notes:
+                    note_id = note["id"]
+                    self.logger.info(f"New note #{note_id}: {note['title']}")
+                    db.update_note_status(note_id, "processing")
+                    db.insert_event("NOTE_RECEIVED", f"New note: {note['title']}", details=note["content"][:200])
+
+                    # Write to the orchestrator's inbox so it sees it next wake
+                    inbox_dir = self.state_dir / "inbox"
+                    inbox_dir.mkdir(exist_ok=True)
+                    inbox_file = inbox_dir / f"note-{note_id}.md"
+                    inbox_file.write_text(f"# Note #{note_id}: {note['title']}\n\nTags: {note.get('tags', '')}\n\n{note['content']}\n")
+
+                    # Spawn a quick summarizer for the note
+                    task_id = f"note-process-{note_id}"
+                    task_yaml = {
+                        "id": task_id,
+                        "agent": "ad-hoc",
+                        "system_prompt": (
+                            "You are a note processor. Read the note content and write a JSON file with these keys:\n"
+                            "- summary (string): concise summary of the note\n"
+                            "- key_points (array of strings): extracted key points\n"
+                            "- category (string): best category — one of: idea, task, research, question, observation, reference, other\n"
+                            "- tags (array of strings): auto-extracted relevant tags\n"
+                            "- suggested_actions (array of strings): what the orchestrator should do with this — e.g. create an agent, research a topic, schedule a task\n"
+                            "Write ONLY valid JSON to the output file. No markdown, no explanation."
+                        ),
+                        "priority": "high",
+                        "wake_on_complete": True,
+                        "timeout_minutes": 5,
+                        "prompt": f"Process this note:\n\nTitle: {note['title']}\nTags: {note.get('tags', '')}\n\n{note['content']}",
+                        "output_path": f"output/notes/note-{note_id}.json",
+                        "allowed_tools": "Read,Write",
+                    }
+                    task_path = self.tasks_dir / "pending" / f"{task_id}.yaml"
+                    with open(task_path, "w") as f:
+                        yaml.dump(task_yaml, f)
+
+            except Exception as e:
+                self.logger.error(f"Error in watch_notes: {e}")
+
+            await asyncio.sleep(5)
+
     # -- Task agent lifecycle --
 
     async def watch_pending_tasks(self):
@@ -581,9 +644,19 @@ Then write your full output below the frontmatter.
         status = "failed" if exit_code != 0 else "completed"
 
         if output_path.exists():
-            fm = parse_result_frontmatter(output_path)
-            status = fm.get("status", status)
-            result_summary = fm.get("summary", result_summary)
+            # Note tasks write raw JSON, not YAML frontmatter
+            if task_id.startswith("note-process-"):
+                try:
+                    note_result = json.loads(output_path.read_text())
+                    if isinstance(note_result, dict):
+                        status = "completed"
+                        result_summary = note_result.get("summary", "Note processed")
+                except (json.JSONDecodeError, Exception):
+                    pass  # fall through to default status
+            else:
+                fm = parse_result_frontmatter(output_path)
+                status = fm.get("status", status)
+                result_summary = fm.get("summary", result_summary)
 
         if exit_code == -1:
             status = "failed"
@@ -631,6 +704,32 @@ Then write your full output below the frontmatter.
         )
 
         self.logger.info(f"Task {task_id} -> {status}: {result_summary}")
+
+        # Post-process note tasks
+        if task_id.startswith("note-process-") and status == "completed" and output_path.exists():
+            try:
+                note_id = int(task_id.replace("note-process-", ""))
+                note_result = json.loads(output_path.read_text())
+                db.update_note_status(
+                    note_id, "processed",
+                    summary=note_result.get("summary", ""),
+                    key_points=json.dumps(note_result.get("key_points", [])),
+                )
+                # Update tags and category too
+                conn = db.get_conn()
+                conn.execute(
+                    "UPDATE notes SET tags=?, category=? WHERE id=?",
+                    (
+                        ",".join(note_result.get("tags", [])),
+                        note_result.get("category", ""),
+                        note_id,
+                    )
+                )
+                conn.commit()
+                conn.close()
+                self.logger.info(f"Note #{note_id} processed: {note_result.get('summary', '')[:80]}")
+            except Exception as e:
+                self.logger.error(f"Failed to post-process note task {task_id}: {e}")
 
         # Wake orchestrator?
         should_wake = (
@@ -976,6 +1075,7 @@ Continue your work. Before finishing, you MUST update your LIFETIME.md file at `
         tasks = [
             asyncio.create_task(self.watch_pending_tasks()),
             asyncio.create_task(self.orchestrator_timer()),
+            asyncio.create_task(self.watch_notes()),
         ]
 
         # Start eternal agent loops

@@ -2,8 +2,9 @@
 
 import os
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 import db
 
 BASE_DIR = Path(__file__).parent.resolve()
@@ -32,10 +33,34 @@ def api_events(limit: int = 100):
 def api_eternal_detail(name: str):
     agent_dir = BASE_DIR / "agents" / "eternal" / name
     result = {"name": name}
-    for fname in ["memory.md", "discoveries.md", "sleep.yaml"]:
+    for fname in ["LIFETIME.md", "discoveries.md", "sleep.yaml"]:
         fpath = agent_dir / fname
         result[fname.replace(".", "_")] = fpath.read_text() if fpath.exists() else ""
     return result
+
+# -- Notes --
+
+class NoteCreate(BaseModel):
+    title: str
+    content: str
+    category: str = ""
+    tags: str = ""
+
+@app.post("/api/notes")
+def api_create_note(note: NoteCreate):
+    note_id = db.insert_note(note.title, note.content, note.category, note.tags)
+    return {"id": note_id, "status": "created"}
+
+@app.get("/api/notes")
+def api_get_notes(status: str = None, limit: int = 50):
+    return db.get_notes(status=status, limit=limit)
+
+@app.get("/api/notes/{note_id}")
+def api_get_note(note_id: int):
+    note = db.get_note(note_id)
+    if not note:
+        return JSONResponse({"error": "not found"}, 404)
+    return note
 
 @app.get("/api/file")
 def api_file(path: str):
@@ -105,6 +130,27 @@ def dashboard():
   .pulse { animation: pulse 2s infinite; }
   @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
   .empty { color: var(--dim); font-style: italic; padding: 20px; text-align: center; }
+  .note-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .note-form input, .note-form textarea, .note-form select { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; color: var(--text); font-family: inherit; font-size: 13px; resize: vertical; }
+  .note-form input:focus, .note-form textarea:focus { outline: none; border-color: var(--accent); }
+  .note-form textarea { min-height: 100px; }
+  .note-form .row { display: flex; gap: 8px; }
+  .note-form .row > * { flex: 1; }
+  .btn { background: var(--accent); color: white; border: none; border-radius: 6px; padding: 10px 20px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+  .btn:hover { opacity: 0.9; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .note-item { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s; }
+  .note-item:hover { border-color: var(--accent); }
+  .note-item h4 { font-size: 13px; margin-bottom: 4px; }
+  .note-item .note-meta { color: var(--dim); font-size: 10px; }
+  .note-item .note-preview { color: var(--dim); font-size: 11px; margin-top: 4px; }
+  .badge.new { background: rgba(124, 108, 240, 0.2); color: var(--accent); }
+  .badge.processing { background: rgba(96, 165, 250, 0.2); color: var(--blue); }
+  .badge.processed { background: rgba(74, 222, 128, 0.2); color: var(--green); }
+  .badge.archived { background: rgba(102, 102, 128, 0.2); color: var(--dim); }
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .tab { padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 11px; color: var(--dim); background: transparent; border: 1px solid var(--border); }
+  .tab.active { color: var(--accent); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -115,6 +161,21 @@ def dashboard():
 <div class="refresh-indicator"><span class="pulse">&#9679;</span> Live — refreshing every 5s</div>
 
 <div class="grid" id="stats"></div>
+
+<div class="section">
+  <h2>Notes</h2>
+  <div class="note-form">
+    <textarea id="note-content" placeholder="Dump your ideas, thoughts, links, anything. The orchestrator will pick this up and act on it. Tags and categories are extracted automatically."></textarea>
+    <button class="btn" onclick="submitNote()">Add Note</button>
+  </div>
+  <div class="tabs">
+    <div class="tab active" onclick="setNoteTab(null, this)">All</div>
+    <div class="tab" onclick="setNoteTab('new', this)">New</div>
+    <div class="tab" onclick="setNoteTab('processing', this)">Processing</div>
+    <div class="tab" onclick="setNoteTab('processed', this)">Processed</div>
+  </div>
+  <div id="notes-list"></div>
+</div>
 
 <div class="section">
   <h2>Eternal Agents</h2>
@@ -162,6 +223,70 @@ function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : (s 
 async function fetchJSON(url) {
   const r = await fetch(url);
   return r.json();
+}
+
+let currentNoteTab = null;
+
+async function submitNote() {
+  const content = document.getElementById('note-content').value.trim();
+  if (!content) return;
+  const btn = document.querySelector('.note-form .btn');
+  btn.disabled = true;
+  try {
+    // Title is auto-extracted: first line or first 60 chars
+    const firstLine = content.split('\\n')[0].trim();
+    const title = firstLine.length > 60 ? firstLine.slice(0, 60) + '...' : firstLine;
+    await fetch('/api/notes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title, content})
+    });
+    document.getElementById('note-content').value = '';
+    refreshNotes();
+  } finally { btn.disabled = false; }
+}
+
+function setNoteTab(status, el) {
+  currentNoteTab = status;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  refreshNotes();
+}
+
+async function refreshNotes() {
+  const url = currentNoteTab ? '/api/notes?status=' + currentNoteTab : '/api/notes';
+  const notes = await fetchJSON(url);
+  const el = document.getElementById('notes-list');
+  if (notes.length === 0) {
+    el.innerHTML = '<div class="empty">No notes yet</div>';
+  } else {
+    el.innerHTML = notes.map(n => `
+      <div class="note-item" onclick="showNote(${n.id})">
+        <h4>${n.title} ${badge(n.status)}</h4>
+        <div class="note-meta">${timeAgo(n.created_at)} ${n.tags ? '&middot; ' + n.tags : ''} ${n.category ? '&middot; ' + n.category : ''}</div>
+        <div class="note-preview">${truncate(n.content, 150)}</div>
+        ${n.summary ? '<div class="note-preview" style="color:var(--green);margin-top:4px">Summary: ' + truncate(n.summary, 120) + '</div>' : ''}
+      </div>
+    `).join('');
+  }
+}
+
+async function showNote(id) {
+  const n = await fetchJSON('/api/notes/' + id);
+  if (!n) return;
+  let kp = '';
+  if (n.key_points) {
+    try { const pts = JSON.parse(n.key_points); kp = '<ul>' + pts.map(p => '<li>' + p + '</li>').join('') + '</ul>'; } catch(e) { kp = n.key_points; }
+  }
+  document.getElementById('modal-content').innerHTML = `
+    <h2>${n.title} ${badge(n.status)}</h2>
+    <div style="color:var(--dim);font-size:11px;margin-bottom:12px">${n.created_at} ${n.tags ? '&middot; Tags: ' + n.tags : ''}</div>
+    <h3 style="color:var(--dim);margin:12px 0 6px">Content</h3>
+    <pre>${n.content}</pre>
+    ${n.summary ? '<h3 style="color:var(--dim);margin:12px 0 6px">Summary</h3><pre>' + n.summary + '</pre>' : ''}
+    ${kp ? '<h3 style="color:var(--dim);margin:12px 0 6px">Key Points</h3>' + kp : ''}
+  `;
+  document.getElementById('modal-overlay').classList.add('active');
 }
 
 async function refresh() {
@@ -255,8 +380,8 @@ async function showEternal(name) {
   const data = await fetchJSON('/api/eternal/' + name);
   document.getElementById('modal-content').innerHTML = `
     <h2>${name}</h2>
-    <h3 style="color:var(--dim);margin:12px 0 6px">Memory</h3>
-    <pre>${data.memory_md || '(empty)'}</pre>
+    <h3 style="color:var(--dim);margin:12px 0 6px">LIFETIME Record</h3>
+    <pre>${data.LIFETIME_md || '(empty)'}</pre>
     <h3 style="color:var(--dim);margin:12px 0 6px">Discoveries</h3>
     <pre>${data.discoveries_md || '(none yet)'}</pre>
     <h3 style="color:var(--dim);margin:12px 0 6px">Sleep</h3>
@@ -294,7 +419,9 @@ function closeModal() {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 refresh();
+refreshNotes();
 setInterval(refresh, 5000);
+setInterval(refreshNotes, 5000);
 </script>
 </body>
 </html>""";
