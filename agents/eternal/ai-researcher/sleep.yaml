@@ -1,2 +1,2 @@
-sleep_minutes: 0
-reason: "First run — start immediately"
+sleep_minutes: 120
+reason: "Completed initial deep research sweep. Next cycle: track DeepSeek V4 launch (imminent), ARC-AGI-3 launch (March 25), Claude 5 developments, ICLR 2026 papers, gpt-oss-120B confirmation."
