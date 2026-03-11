@@ -72,6 +72,30 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_notes_status ON notes(status);
         CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
+
+        CREATE TABLE IF NOT EXISTS threads (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL DEFAULT 'New Thread',
+            status TEXT DEFAULT 'active',  -- active, archived
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS thread_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            thread_id TEXT NOT NULL REFERENCES threads(id),
+            role TEXT NOT NULL,           -- 'user' or 'assistant'
+            content_full TEXT NOT NULL,   -- raw complete content
+            content_compressed TEXT,      -- summarized version, NULL until compressed
+            metadata TEXT DEFAULT '{}',   -- JSON: tool_calls, files_modified, etc.
+            token_estimate INTEGER DEFAULT 0,
+            is_compressed INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_thread_messages_thread ON thread_messages(thread_id);
+        CREATE INDEX IF NOT EXISTS idx_threads_status ON threads(status);
+        CREATE INDEX IF NOT EXISTS idx_threads_updated ON threads(updated_at);
     """)
     conn.commit()
     conn.close()
@@ -209,6 +233,105 @@ def get_note(note_id: int) -> dict | None:
 def get_new_notes() -> list[dict]:
     """Get notes with status 'new' that haven't been processed yet."""
     return get_notes(status="new")
+
+# -- Threads --
+
+def create_thread(thread_id: str, title: str = "New Thread") -> str:
+    conn = get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO threads (id, title, status, created_at, updated_at) VALUES (?, ?, 'active', ?, ?)",
+        (thread_id, title, now, now)
+    )
+    conn.commit()
+    conn.close()
+    return thread_id
+
+def get_threads(status: str = None, limit: int = 50) -> list[dict]:
+    conn = get_conn()
+    if status:
+        rows = conn.execute(
+            "SELECT * FROM threads WHERE status=? ORDER BY updated_at DESC LIMIT ?", (status, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM threads ORDER BY updated_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_thread(thread_id: str) -> dict | None:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM threads WHERE id=?", (thread_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def update_thread(thread_id: str, **kwargs):
+    conn = get_conn()
+    kwargs["updated_at"] = datetime.now(timezone.utc).isoformat()
+    sets = ", ".join(f"{k}=?" for k in kwargs)
+    vals = list(kwargs.values()) + [thread_id]
+    conn.execute(f"UPDATE threads SET {sets} WHERE id=?", vals)
+    conn.commit()
+    conn.close()
+
+def insert_thread_message(thread_id: str, role: str, content: str, metadata: dict = None) -> int:
+    conn = get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    meta_json = json.dumps(metadata or {})
+    token_est = len(content) // 4
+    cur = conn.execute(
+        "INSERT INTO thread_messages (thread_id, role, content_full, metadata, token_estimate, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (thread_id, role, content, meta_json, token_est, now)
+    )
+    # Update thread's updated_at
+    conn.execute("UPDATE threads SET updated_at=? WHERE id=?", (now, thread_id))
+    conn.commit()
+    msg_id = cur.lastrowid
+    conn.close()
+    return msg_id
+
+def get_thread_messages(thread_id: str, limit: int = 200) -> list[dict]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM thread_messages WHERE thread_id=? ORDER BY id ASC LIMIT ?", (thread_id, limit)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_thread_context_size(thread_id: str) -> int:
+    """Get total token estimate for a thread."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT COALESCE(SUM(token_estimate), 0) as total FROM thread_messages WHERE thread_id=?", (thread_id,)
+    ).fetchone()
+    conn.close()
+    return row[0]
+
+def compress_thread_message(msg_id: int, compressed: str):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE thread_messages SET content_compressed=?, is_compressed=1 WHERE id=?",
+        (compressed, msg_id)
+    )
+    conn.commit()
+    conn.close()
+
+def get_uncompressed_messages(thread_id: str, limit: int = 50) -> list[dict]:
+    """Get oldest uncompressed messages for a thread (candidates for compression)."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM thread_messages WHERE thread_id=? AND is_compressed=0 ORDER BY id ASC LIMIT ?",
+        (thread_id, limit)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_full_message(msg_id: int) -> dict | None:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM thread_messages WHERE id=?", (msg_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 # -- Stats --
 
