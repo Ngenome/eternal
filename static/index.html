@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eternal</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>ETERNAL</h1>
+      <div class="subtitle">Agent Orchestration System</div>
+    </div>
+    <div class="sidebar-nav">
+      <button class="nav-item active" onclick="showPage('dashboard', this)">
+        <span class="icon">&#9632;</span> Dashboard
+      </button>
+      <button class="nav-item" onclick="showPage('chat', this)">
+        <span class="icon">&#9998;</span> Chat
+      </button>
+      <button class="nav-item" onclick="showPage('notes', this)">
+        <span class="icon">&#9997;</span> Notes
+      </button>
+    </div>
+    <div class="nav-divider"></div>
+
+    <!-- Thread list (visible when on chat page) -->
+    <div id="thread-sidebar" style="display:none; flex:1; overflow:hidden; display:flex; flex-direction:column;">
+      <div class="thread-list-header">
+        <h3>Threads</h3>
+        <span class="refresh-indicator"><span class="pulse">&#9679;</span></span>
+      </div>
+      <button class="new-thread-btn" onclick="createThread()">+ New Thread</button>
+      <div class="thread-list" id="thread-list"></div>
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div class="main">
+    <!-- Dashboard page -->
+    <div class="page active" id="page-dashboard">
+      <div class="topbar">
+        <h2>Dashboard</h2>
+        <div class="status"><span class="pulse">&#9679;</span> Live — refreshing every 5s</div>
+      </div>
+      <div class="dashboard">
+        <div class="grid" id="stats"></div>
+        <div class="section">
+          <h2>Eternal Agents</h2>
+          <div id="eternal-agents"></div>
+        </div>
+        <div class="section">
+          <h2>Currently Running</h2>
+          <div id="running"></div>
+        </div>
+        <div class="section">
+          <h2>Recent Runs</h2>
+          <div id="runs"></div>
+        </div>
+        <div class="section">
+          <h2>Event Log</h2>
+          <div id="events"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chat page -->
+    <div class="page" id="page-chat">
+      <div class="topbar">
+        <h2 id="chat-title">Select a thread</h2>
+        <div class="status" id="chat-status"></div>
+      </div>
+      <div class="chat-container">
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-empty">Select a thread or create a new one to start chatting</div>
+        </div>
+        <div class="chat-input-area">
+          <div class="chat-input-row">
+            <textarea id="chat-input" placeholder="Send a message..." rows="1" onkeydown="handleChatKey(event)" oninput="autoResize(this)"></textarea>
+            <button class="send-btn" id="send-btn" onclick="sendMessage()" disabled>&#9654;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notes page -->
+    <div class="page" id="page-notes">
+      <div class="topbar">
+        <h2>Notes</h2>
+        <div class="status"><span class="pulse">&#9679;</span> Auto-processed by agents</div>
+      </div>
+      <div class="dashboard">
+        <div class="section">
+          <div class="note-form">
+            <textarea id="note-content" placeholder="Dump your ideas, thoughts, links, anything. The orchestrator will pick this up and act on it. Tags and categories are extracted automatically."></textarea>
+            <button class="btn" onclick="submitNote()">Add Note</button>
+          </div>
+          <div class="tabs">
+            <div class="tab active" onclick="setNoteTab(null, this)">All</div>
+            <div class="tab" onclick="setNoteTab('new', this)">New</div>
+            <div class="tab" onclick="setNoteTab('processing', this)">Processing</div>
+            <div class="tab" onclick="setNoteTab('processed', this)">Processed</div>
+          </div>
+          <div id="notes-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <span class="close" onclick="closeModal()">&times;</span>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

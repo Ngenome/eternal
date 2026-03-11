@@ -1,17 +1,41 @@
 """Eternal Dashboard — FastAPI web server for monitoring the agent system."""
 
+import asyncio
+import json
 import os
+import uuid
 from pathlib import Path
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from typing import Optional
+
+from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import db
 
 BASE_DIR = Path(__file__).parent.resolve()
+STATIC_DIR = BASE_DIR / "static"
+
 app = FastAPI(title="Eternal Dashboard")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Reference to daemon instance (set by daemon.py at startup)
+_daemon = None
+
+def set_daemon(daemon):
+    global _daemon
+    _daemon = daemon
 
 # ---------------------------------------------------------------------------
-# API endpoints
+# Pages
+# ---------------------------------------------------------------------------
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    return (STATIC_DIR / "index.html").read_text()
+
+# ---------------------------------------------------------------------------
+# API — Status & Monitoring
 # ---------------------------------------------------------------------------
 
 @app.get("/api/status")
@@ -38,7 +62,19 @@ def api_eternal_detail(name: str):
         result[fname.replace(".", "_")] = fpath.read_text() if fpath.exists() else ""
     return result
 
-# -- Notes --
+@app.get("/api/file")
+def api_file(path: str):
+    """Read any file relative to BASE_DIR."""
+    fpath = (BASE_DIR / path).resolve()
+    if not str(fpath).startswith(str(BASE_DIR)):
+        return JSONResponse({"error": "path traversal"}, 403)
+    if not fpath.exists():
+        return JSONResponse({"error": "not found"}, 404)
+    return {"path": path, "content": fpath.read_text()[:50000]}
+
+# ---------------------------------------------------------------------------
+# API — Notes
+# ---------------------------------------------------------------------------
 
 class NoteCreate(BaseModel):
     title: str
@@ -62,366 +98,214 @@ def api_get_note(note_id: int):
         return JSONResponse({"error": "not found"}, 404)
     return note
 
-@app.get("/api/file")
-def api_file(path: str):
-    """Read any file relative to BASE_DIR."""
-    fpath = (BASE_DIR / path).resolve()
-    if not str(fpath).startswith(str(BASE_DIR)):
-        return JSONResponse({"error": "path traversal"}, 403)
-    if not fpath.exists():
+# ---------------------------------------------------------------------------
+# API — Threads (Chat Sessions)
+# ---------------------------------------------------------------------------
+
+class ThreadCreate(BaseModel):
+    title: str = "New Thread"
+
+class MessageCreate(BaseModel):
+    content: str
+
+@app.post("/api/threads")
+def api_create_thread(body: ThreadCreate = ThreadCreate()):
+    thread_id = str(uuid.uuid4())[:8]
+    db.create_thread(thread_id, body.title)
+    return {"id": thread_id, "title": body.title, "status": "active"}
+
+@app.get("/api/threads")
+def api_get_threads(status: str = None, limit: int = 50):
+    return db.get_threads(status=status, limit=limit)
+
+@app.get("/api/threads/{thread_id}")
+def api_get_thread(thread_id: str):
+    thread = db.get_thread(thread_id)
+    if not thread:
         return JSONResponse({"error": "not found"}, 404)
-    return {"path": path, "content": fpath.read_text()[:50000]}
+    return thread
+
+@app.get("/api/threads/{thread_id}/messages")
+def api_get_thread_messages(thread_id: str, limit: int = 200):
+    thread = db.get_thread(thread_id)
+    if not thread:
+        return JSONResponse({"error": "not found"}, 404)
+    return db.get_thread_messages(thread_id, limit)
+
+@app.post("/api/threads/{thread_id}/messages")
+def api_send_message(thread_id: str, body: MessageCreate, background_tasks: BackgroundTasks):
+    thread = db.get_thread(thread_id)
+    if not thread:
+        return JSONResponse({"error": "not found"}, 404)
+
+    # Store user message
+    msg_id = db.insert_thread_message(thread_id, "user", body.content)
+
+    # Auto-title on first message
+    if thread["title"] == "New Thread":
+        first_line = body.content.split('\n')[0].strip()
+        title = first_line[:60] + ('...' if len(first_line) > 60 else '')
+        db.update_thread(thread_id, title=title)
+
+    # Spawn chat agent in background
+    background_tasks.add_task(run_chat_agent, thread_id, body.content)
+
+    return {"message_id": msg_id, "status": "sent"}
+
+@app.get("/api/threads/{thread_id}/context-size")
+def api_thread_context_size(thread_id: str):
+    return {"token_estimate": db.get_thread_context_size(thread_id)}
 
 # ---------------------------------------------------------------------------
-# Dashboard HTML
+# Chat agent runner (runs in background)
 # ---------------------------------------------------------------------------
 
-@app.get("/", response_class=HTMLResponse)
-def dashboard():
-    return """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Eternal Dashboard</title>
-<style>
-  :root {
-    --bg: #0a0a0f; --surface: #12121a; --border: #1e1e2e;
-    --text: #c8c8d8; --dim: #666680; --accent: #7c6cf0;
-    --green: #4ade80; --red: #f87171; --yellow: #fbbf24; --blue: #60a5fa;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace; background: var(--bg); color: var(--text); padding: 20px; font-size: 13px; }
-  h1 { color: var(--accent); font-size: 18px; margin-bottom: 4px; }
-  .subtitle { color: var(--dim); font-size: 11px; margin-bottom: 20px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
-  .card h3 { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-  .card .value { font-size: 28px; font-weight: bold; }
-  .card .value.green { color: var(--green); }
-  .card .value.red { color: var(--red); }
-  .card .value.yellow { color: var(--yellow); }
-  .card .value.blue { color: var(--blue); }
-  .section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-  .section h2 { font-size: 13px; color: var(--accent); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
-  table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
-  td { padding: 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
-  tr:hover { background: rgba(124, 108, 240, 0.05); }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; text-transform: uppercase; }
-  .badge.running { background: rgba(96, 165, 250, 0.2); color: var(--blue); }
-  .badge.completed { background: rgba(74, 222, 128, 0.2); color: var(--green); }
-  .badge.failed { background: rgba(248, 113, 113, 0.2); color: var(--red); }
-  .badge.sleeping { background: rgba(251, 191, 36, 0.2); color: var(--yellow); }
-  .badge.idle { background: rgba(102, 102, 128, 0.2); color: var(--dim); }
-  .badge.timeout { background: rgba(248, 113, 113, 0.2); color: var(--red); }
-  .eternal-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s; }
-  .eternal-card:hover { border-color: var(--accent); }
-  .eternal-card h3 { font-size: 14px; color: var(--text); margin-bottom: 4px; }
-  .eternal-card .meta { color: var(--dim); font-size: 11px; line-height: 1.6; }
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: center; }
-  .modal-overlay.active { display: flex; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; max-width: 800px; width: 90%; max-height: 80vh; overflow-y: auto; }
-  .modal h2 { color: var(--accent); margin-bottom: 16px; }
-  .modal pre { background: var(--bg); padding: 12px; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; font-size: 11px; line-height: 1.5; max-height: 400px; overflow-y: auto; }
-  .modal .close { float: right; cursor: pointer; color: var(--dim); font-size: 18px; }
-  .modal .close:hover { color: var(--text); }
-  .refresh-indicator { position: fixed; top: 10px; right: 10px; color: var(--dim); font-size: 10px; }
-  .pulse { animation: pulse 2s infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
-  .empty { color: var(--dim); font-style: italic; padding: 20px; text-align: center; }
-  .note-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
-  .note-form input, .note-form textarea, .note-form select { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; color: var(--text); font-family: inherit; font-size: 13px; resize: vertical; }
-  .note-form input:focus, .note-form textarea:focus { outline: none; border-color: var(--accent); }
-  .note-form textarea { min-height: 100px; }
-  .note-form .row { display: flex; gap: 8px; }
-  .note-form .row > * { flex: 1; }
-  .btn { background: var(--accent); color: white; border: none; border-radius: 6px; padding: 10px 20px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
-  .btn:hover { opacity: 0.9; }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .note-item { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s; }
-  .note-item:hover { border-color: var(--accent); }
-  .note-item h4 { font-size: 13px; margin-bottom: 4px; }
-  .note-item .note-meta { color: var(--dim); font-size: 10px; }
-  .note-item .note-preview { color: var(--dim); font-size: 11px; margin-top: 4px; }
-  .badge.new { background: rgba(124, 108, 240, 0.2); color: var(--accent); }
-  .badge.processing { background: rgba(96, 165, 250, 0.2); color: var(--blue); }
-  .badge.processed { background: rgba(74, 222, 128, 0.2); color: var(--green); }
-  .badge.archived { background: rgba(102, 102, 128, 0.2); color: var(--dim); }
-  .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
-  .tab { padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 11px; color: var(--dim); background: transparent; border: 1px solid var(--border); }
-  .tab.active { color: var(--accent); border-color: var(--accent); }
-</style>
-</head>
-<body>
+async def _run_chat_agent_async(thread_id: str, user_message: str):
+    """Build context from thread history and spawn claude -p."""
+    import yaml
 
-<h1>ETERNAL</h1>
-<p class="subtitle">Agent Orchestration System</p>
+    messages = db.get_thread_messages(thread_id)
+    model = "sonnet"
+    timeout = 10
 
-<div class="refresh-indicator"><span class="pulse">&#9679;</span> Live — refreshing every 5s</div>
+    # Load config if daemon is available
+    if _daemon:
+        model = _daemon.config.get("claude", {}).get("model", "sonnet")
+        timeout = _daemon.config.get("agents", {}).get("default_timeout_minutes", 10)
 
-<div class="grid" id="stats"></div>
+    # Build conversation context
+    context_parts = []
+    total_chars = 0
+    CONTEXT_BUDGET = 120000  # ~30k tokens
 
-<div class="section">
-  <h2>Notes</h2>
-  <div class="note-form">
-    <textarea id="note-content" placeholder="Dump your ideas, thoughts, links, anything. The orchestrator will pick this up and act on it. Tags and categories are extracted automatically."></textarea>
-    <button class="btn" onclick="submitNote()">Add Note</button>
-  </div>
-  <div class="tabs">
-    <div class="tab active" onclick="setNoteTab(null, this)">All</div>
-    <div class="tab" onclick="setNoteTab('new', this)">New</div>
-    <div class="tab" onclick="setNoteTab('processing', this)">Processing</div>
-    <div class="tab" onclick="setNoteTab('processed', this)">Processed</div>
-  </div>
-  <div id="notes-list"></div>
-</div>
+    # Walk messages newest-first to prioritize recent context
+    for msg in reversed(messages):
+        # Use compressed version if available, otherwise full
+        content = msg.get("content_compressed") or msg["content_full"]
+        role_label = "USER" if msg["role"] == "user" else "ASSISTANT"
 
-<div class="section">
-  <h2>Eternal Agents</h2>
-  <div id="eternal-agents"></div>
-</div>
+        entry = f"[{role_label} — msg #{msg['id']}]\n{content}\n"
+        if total_chars + len(entry) > CONTEXT_BUDGET:
+            context_parts.append(f"[... {len(messages) - len(context_parts)} older messages truncated — agent can query full history via message IDs ...]\n")
+            break
+        context_parts.append(entry)
+        total_chars += len(entry)
 
-<div class="section">
-  <h2>Currently Running</h2>
-  <div id="running"></div>
-</div>
+    context_parts.reverse()
+    conversation_history = "\n---\n".join(context_parts)
 
-<div class="section">
-  <h2>Recent Runs</h2>
-  <div id="runs"></div>
-</div>
+    # Build the prompt
+    prompt = f"""## Conversation History
 
-<div class="section">
-  <h2>Event Log</h2>
-  <div id="events"></div>
-</div>
+{conversation_history}
 
-<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <span class="close" onclick="closeModal()">&times;</span>
-    <div id="modal-content"></div>
-  </div>
-</div>
+---
 
-<script>
-function badge(status) {
-  return `<span class="badge ${status}">${status}</span>`;
-}
+## New Message from User
 
-function timeAgo(iso) {
-  if (!iso) return '—';
-  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (diff < 60) return Math.floor(diff) + 's ago';
-  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
-  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
-  return Math.floor(diff/86400) + 'd ago';
-}
+{user_message}
 
-function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : (s || '—'); }
+---
 
-async function fetchJSON(url) {
-  const r = await fetch(url);
-  return r.json();
-}
+Respond with valid JSON as specified in your system prompt. Remember: your action_summary is what persists across sessions — be thorough."""
 
-let currentNoteTab = null;
+    # System prompt
+    template_path = BASE_DIR / "agents" / "templates" / "chat-session.md"
+    if not template_path.exists():
+        # Fallback if template missing
+        db.insert_thread_message(thread_id, "assistant", json.dumps({
+            "response": "Chat session template not found. Please ensure agents/templates/chat-session.md exists.",
+            "action_summary": "No actions taken.",
+            "tools_used": [],
+            "files_modified": [],
+            "needs_followup": False
+        }))
+        return
 
-async function submitNote() {
-  const content = document.getElementById('note-content').value.trim();
-  if (!content) return;
-  const btn = document.querySelector('.note-form .btn');
-  btn.disabled = true;
-  try {
-    // Title is auto-extracted: first line or first 60 chars
-    const firstLine = content.split('\\n')[0].trim();
-    const title = firstLine.length > 60 ? firstLine.slice(0, 60) + '...' : firstLine;
-    await fetch('/api/notes', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({title, content})
-    });
-    document.getElementById('note-content').value = '';
-    refreshNotes();
-  } finally { btn.disabled = false; }
-}
+    # Remove CLAUDECODE env to allow nested sessions
+    env = os.environ.copy()
+    env.pop("CLAUDECODE", None)
 
-function setNoteTab(status, el) {
-  currentNoteTab = status;
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  el.classList.add('active');
-  refreshNotes();
-}
+    cmd = [
+        "claude", "-p",
+        "--system-prompt", template_path.read_text(),
+        "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash",
+        "--model", model,
+    ]
 
-async function refreshNotes() {
-  const url = currentNoteTab ? '/api/notes?status=' + currentNoteTab : '/api/notes';
-  const notes = await fetchJSON(url);
-  const el = document.getElementById('notes-list');
-  if (notes.length === 0) {
-    el.innerHTML = '<div class="empty">No notes yet</div>';
-  } else {
-    el.innerHTML = notes.map(n => `
-      <div class="note-item" onclick="showNote(${n.id})">
-        <h4>${n.title} ${badge(n.status)}</h4>
-        <div class="note-meta">${timeAgo(n.created_at)} ${n.tags ? '&middot; ' + n.tags : ''} ${n.category ? '&middot; ' + n.category : ''}</div>
-        <div class="note-preview">${truncate(n.content, 150)}</div>
-        ${n.summary ? '<div class="note-preview" style="color:var(--green);margin-top:4px">Summary: ' + truncate(n.summary, 120) + '</div>' : ''}
-      </div>
-    `).join('');
-  }
-}
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
 
-async function showNote(id) {
-  const n = await fetchJSON('/api/notes/' + id);
-  if (!n) return;
-  let kp = '';
-  if (n.key_points) {
-    try { const pts = JSON.parse(n.key_points); kp = '<ul>' + pts.map(p => '<li>' + p + '</li>').join('') + '</ul>'; } catch(e) { kp = n.key_points; }
-  }
-  document.getElementById('modal-content').innerHTML = `
-    <h2>${n.title} ${badge(n.status)}</h2>
-    <div style="color:var(--dim);font-size:11px;margin-bottom:12px">${n.created_at} ${n.tags ? '&middot; Tags: ' + n.tags : ''}</div>
-    <h3 style="color:var(--dim);margin:12px 0 6px">Content</h3>
-    <pre>${n.content}</pre>
-    ${n.summary ? '<h3 style="color:var(--dim);margin:12px 0 6px">Summary</h3><pre>' + n.summary + '</pre>' : ''}
-    ${kp ? '<h3 style="color:var(--dim);margin:12px 0 6px">Key Points</h3>' + kp : ''}
-  `;
-  document.getElementById('modal-overlay').classList.add('active');
-}
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=prompt.encode()),
+            timeout=timeout * 60,
+        )
 
-async function refresh() {
-  try {
-    const [status, runs, events] = await Promise.all([
-      fetchJSON('/api/status'),
-      fetchJSON('/api/runs?limit=30'),
-      fetchJSON('/api/events?limit=50'),
-    ]);
+        output = stdout.decode() if stdout else ""
 
-    // Stats cards
-    const s = status.stats;
-    document.getElementById('stats').innerHTML = `
-      <div class="card"><h3>Running</h3><div class="value blue">${s.running}</div></div>
-      <div class="card"><h3>Completed</h3><div class="value green">${s.completed}</div></div>
-      <div class="card"><h3>Failed</h3><div class="value red">${s.failed}</div></div>
-      <div class="card"><h3>Total Runs</h3><div class="value">${s.total}</div></div>
-    `;
+        # Try to parse as JSON, store raw if not
+        try:
+            parsed = json.loads(output)
+            metadata = {
+                "action_summary": parsed.get("action_summary", ""),
+                "tools_used": parsed.get("tools_used", []),
+                "files_modified": parsed.get("files_modified", []),
+                "needs_followup": parsed.get("needs_followup", False),
+                "exit_code": proc.returncode,
+            }
+        except json.JSONDecodeError:
+            parsed = None
+            metadata = {"raw_output": True, "exit_code": proc.returncode}
 
-    // Eternal agents
-    const ea = status.eternal_agents;
-    if (ea.length === 0) {
-      document.getElementById('eternal-agents').innerHTML = '<div class="empty">No eternal agents configured</div>';
-    } else {
-      document.getElementById('eternal-agents').innerHTML = ea.map(a => `
-        <div class="eternal-card" onclick="showEternal('${a.name}')">
-          <h3>${a.name} ${badge(a.status || 'idle')}</h3>
-          <div class="meta">
-            ${a.sleep_until ? 'Wakes: ' + timeAgo(a.sleep_until).replace('ago','').trim() + ' from now' : ''}
-            ${a.last_cycle_end ? '&nbsp;&middot;&nbsp; Last cycle: ' + timeAgo(a.last_cycle_end) : ''}
-            ${a.memory_size_bytes ? '&nbsp;&middot;&nbsp; Memory: ' + (a.memory_size_bytes/1024).toFixed(1) + 'KB' : ''}
-            ${a.latest_discovery ? '<br>Latest: ' + truncate(a.latest_discovery, 120) : ''}
-          </div>
-        </div>
-      `).join('');
-    }
+        # Store assistant message
+        db.insert_thread_message(
+            thread_id, "assistant",
+            output if output else json.dumps({"response": "(no output)", "action_summary": "No actions taken.", "tools_used": [], "files_modified": [], "needs_followup": False}),
+            metadata=metadata,
+        )
 
-    // Running agents
-    const running = status.running;
-    if (running.length === 0) {
-      document.getElementById('running').innerHTML = '<div class="empty">No agents currently running</div>';
-    } else {
-      document.getElementById('running').innerHTML = `<table>
-        <tr><th>Agent</th><th>Type</th><th>Task</th><th>Started</th></tr>
-        ${running.map(r => `<tr>
-          <td>${r.agent_name}</td><td>${r.agent_type}</td>
-          <td>${r.task_id || '—'}</td><td>${timeAgo(r.started_at)}</td>
-        </tr>`).join('')}
-      </table>`;
-    }
+        # Log to events
+        summary = ""
+        if parsed:
+            summary = parsed.get("response", "")[:100]
+        db.insert_event("CHAT_RESPONSE", f"Thread {thread_id}: {summary}", agent_name="chat-session")
 
-    // Recent runs
-    if (runs.length === 0) {
-      document.getElementById('runs').innerHTML = '<div class="empty">No runs yet</div>';
-    } else {
-      document.getElementById('runs').innerHTML = `<table>
-        <tr><th>Agent</th><th>Type</th><th>Status</th><th>Summary</th><th>Started</th><th>Duration</th></tr>
-        ${runs.map(r => {
-          let dur = '—';
-          if (r.started_at && r.finished_at) {
-            const ms = new Date(r.finished_at) - new Date(r.started_at);
-            dur = ms < 60000 ? Math.floor(ms/1000) + 's' : Math.floor(ms/60000) + 'm ' + Math.floor((ms%60000)/1000) + 's';
-          }
-          return `<tr onclick="showRun('${r.run_id}')" style="cursor:pointer">
-            <td>${r.agent_name}</td><td>${r.agent_type}</td>
-            <td>${badge(r.status)}</td><td>${truncate(r.summary, 80)}</td>
-            <td>${timeAgo(r.started_at)}</td><td>${dur}</td>
-          </tr>`;
-        }).join('')}
-      </table>`;
-    }
+    except asyncio.TimeoutError:
+        db.insert_thread_message(
+            thread_id, "assistant",
+            json.dumps({
+                "response": f"Request timed out after {timeout} minutes.",
+                "action_summary": "Timed out.",
+                "tools_used": [],
+                "files_modified": [],
+                "needs_followup": True
+            }),
+            metadata={"timeout": True},
+        )
+    except Exception as e:
+        db.insert_thread_message(
+            thread_id, "assistant",
+            json.dumps({
+                "response": f"Error running chat agent: {str(e)}",
+                "action_summary": f"Error: {str(e)}",
+                "tools_used": [],
+                "files_modified": [],
+                "needs_followup": False
+            }),
+            metadata={"error": str(e)},
+        )
 
-    // Events
-    if (events.length === 0) {
-      document.getElementById('events').innerHTML = '<div class="empty">No events yet</div>';
-    } else {
-      document.getElementById('events').innerHTML = `<table>
-        <tr><th>Time</th><th>Type</th><th>Agent</th><th>Summary</th></tr>
-        ${events.map(e => `<tr>
-          <td>${timeAgo(e.created_at)}</td><td>${e.event_type}</td>
-          <td>${e.agent_name || '—'}</td><td>${truncate(e.summary, 100)}</td>
-        </tr>`).join('')}
-      </table>`;
-    }
-  } catch (e) {
-    console.error('Refresh failed:', e);
-  }
-}
 
-async function showEternal(name) {
-  const data = await fetchJSON('/api/eternal/' + name);
-  document.getElementById('modal-content').innerHTML = `
-    <h2>${name}</h2>
-    <h3 style="color:var(--dim);margin:12px 0 6px">LIFETIME Record</h3>
-    <pre>${data.LIFETIME_md || '(empty)'}</pre>
-    <h3 style="color:var(--dim);margin:12px 0 6px">Discoveries</h3>
-    <pre>${data.discoveries_md || '(none yet)'}</pre>
-    <h3 style="color:var(--dim);margin:12px 0 6px">Sleep</h3>
-    <pre>${data.sleep_yaml || '(no sleep data)'}</pre>
-  `;
-  document.getElementById('modal-overlay').classList.add('active');
-}
-
-async function showRun(runId) {
-  // For now just show the run details from the runs list
-  const runs = await fetchJSON('/api/runs?limit=100');
-  const run = runs.find(r => r.run_id === runId);
-  if (!run) return;
-  document.getElementById('modal-content').innerHTML = `
-    <h2>Run: ${run.agent_name}</h2>
-    <table>
-      <tr><td style="color:var(--dim)">Run ID</td><td>${run.run_id}</td></tr>
-      <tr><td style="color:var(--dim)">Type</td><td>${run.agent_type}</td></tr>
-      <tr><td style="color:var(--dim)">Status</td><td>${badge(run.status)}</td></tr>
-      <tr><td style="color:var(--dim)">Exit Code</td><td>${run.exit_code ?? '—'}</td></tr>
-      <tr><td style="color:var(--dim)">Started</td><td>${run.started_at}</td></tr>
-      <tr><td style="color:var(--dim)">Finished</td><td>${run.finished_at || '—'}</td></tr>
-      <tr><td style="color:var(--dim)">Summary</td><td>${run.summary || '—'}</td></tr>
-      <tr><td style="color:var(--dim)">Output</td><td>${run.output_path || '—'}</td></tr>
-    </table>
-    ${run.prompt_preview ? '<h3 style="color:var(--dim);margin:12px 0 6px">Prompt Preview</h3><pre>' + run.prompt_preview + '</pre>' : ''}
-  `;
-  document.getElementById('modal-overlay').classList.add('active');
-}
-
-function closeModal() {
-  document.getElementById('modal-overlay').classList.remove('active');
-}
-
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-
-refresh();
-refreshNotes();
-setInterval(refresh, 5000);
-setInterval(refreshNotes, 5000);
-</script>
-</body>
-</html>""";
+def run_chat_agent(thread_id: str, user_message: str):
+    """Sync wrapper to run async chat agent from BackgroundTasks."""
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_run_chat_agent_async(thread_id, user_message))
+    finally:
+        loop.close()

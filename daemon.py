@@ -28,7 +28,7 @@ import yaml
 import uvicorn
 
 import db
-from web import app as web_app
+from web import app as web_app, set_daemon as set_web_daemon
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -489,6 +489,91 @@ class EternalDaemon:
                 self.logger.error(f"Error in watch_notes: {e}")
 
             await asyncio.sleep(5)
+
+    # -- Thread compression --
+
+    COMPRESSION_THRESHOLD = 120000  # ~30k tokens in chars
+    MESSAGES_TO_COMPRESS = 10  # Compress oldest N messages at a time
+
+    async def watch_thread_compression(self):
+        """Monitor active threads and compress old messages when context gets large."""
+        while not self.shutting_down:
+            try:
+                threads = db.get_threads(status="active")
+                for thread in threads:
+                    ctx_size = db.get_thread_context_size(thread["id"])
+                    if ctx_size > self.COMPRESSION_THRESHOLD:
+                        await self._compress_thread(thread["id"])
+            except Exception as e:
+                self.logger.error(f"Error in watch_thread_compression: {e}")
+            await asyncio.sleep(30)
+
+    async def _compress_thread(self, thread_id: str):
+        """Compress the oldest uncompressed messages in a thread."""
+        messages = db.get_uncompressed_messages(thread_id, self.MESSAGES_TO_COMPRESS)
+        if len(messages) < 2:
+            return  # Need at least a couple messages to compress
+
+        self.logger.info(f"Compressing {len(messages)} messages in thread {thread_id}")
+
+        # Build the content to summarize
+        content_parts = []
+        msg_ids = []
+        for msg in messages:
+            role = "USER" if msg["role"] == "user" else "ASSISTANT"
+            content_parts.append(f"[{role} — msg #{msg['id']}]\n{msg['content_full']}")
+            msg_ids.append(msg["id"])
+
+        content_to_compress = "\n---\n".join(content_parts)
+
+        system_prompt = (
+            "You are a conversation compressor. Given a sequence of chat messages, "
+            "produce a concise summary that retains ALL key information:\n"
+            "- What the user asked or instructed\n"
+            "- What actions the assistant took (files read, edited, commands run)\n"
+            "- What decisions were made\n"
+            "- What the outcomes were\n"
+            "- Any file paths, code changes, or technical details mentioned\n\n"
+            "Include message IDs for reference. Output ONLY the summary text, no JSON wrapping."
+        )
+
+        prompt = f"Compress these {len(messages)} messages (IDs: {msg_ids}):\n\n{content_to_compress}"
+
+        env = os.environ.copy()
+        env.pop("CLAUDECODE", None)
+        model = self.config.get("claude", {}).get("model", "sonnet")
+
+        cmd = [
+            "claude", "-p",
+            "--system-prompt", system_prompt,
+            "--model", model,
+        ]
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, _ = await asyncio.wait_for(
+                proc.communicate(input=prompt.encode()),
+                timeout=120,
+            )
+            compressed = stdout.decode().strip() if stdout else ""
+
+            if compressed and proc.returncode == 0:
+                for msg in messages:
+                    db.compress_thread_message(msg["id"], compressed if msg["id"] == msg_ids[0] else f"[Compressed into msg #{msg_ids[0]}]")
+                self.logger.info(f"Compressed {len(messages)} messages in thread {thread_id}: {len(content_to_compress)} -> {len(compressed)} chars")
+            else:
+                self.logger.warning(f"Compression failed for thread {thread_id}: exit {proc.returncode}")
+
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Compression timed out for thread {thread_id}")
+        except Exception as e:
+            self.logger.error(f"Compression error for thread {thread_id}: {e}")
 
     # -- Task agent lifecycle --
 
@@ -1062,6 +1147,9 @@ Continue your work. Before finishing, you MUST update your LIFETIME.md file at `
         signal.signal(signal.SIGINT, self.handle_shutdown)
         signal.signal(signal.SIGTERM, self.handle_shutdown)
 
+        # Give web module access to daemon for config
+        set_web_daemon(self)
+
         # Start web dashboard in a background thread
         web_port = self.config.get("web", {}).get("port", 7777)
         web_thread = threading.Thread(
@@ -1076,6 +1164,7 @@ Continue your work. Before finishing, you MUST update your LIFETIME.md file at `
             asyncio.create_task(self.watch_pending_tasks()),
             asyncio.create_task(self.orchestrator_timer()),
             asyncio.create_task(self.watch_notes()),
+            asyncio.create_task(self.watch_thread_compression()),
         ]
 
         # Start eternal agent loops
